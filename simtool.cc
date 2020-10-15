@@ -97,7 +97,6 @@
 #include "simtool.h"
 #include "player/finance.h"
 
-
 #define is_scenario()  welt->get_scenario()->is_scripted()
 
 #define CHECK_FUNDS() \
@@ -2390,7 +2389,7 @@ const char *tool_plant_tree_t::work( player_t *player, koord3d pos )
 	grund_t *gr = welt->lookup_kartenboden(k);
 	if(gr) {
 		// check if trees are allowed
-		if(  welt->get_settings().get_no_trees()  &&  !player->is_public_service()  ) {
+		if(  welt->get_settings().get_tree()==0  &&  !player->is_public_service()  ) {
 			return NOTICE_NO_TREES;
 		}
 
@@ -5118,7 +5117,7 @@ const char *tool_build_station_t::move( player_t *player, uint16 buttonstate, ko
 
 const char *tool_build_station_t::work( player_t *player, koord3d pos )
 {
-	two_click_tool_t::work( player, pos );
+	return two_click_tool_t::work( player, pos );
 }
 const char *tool_build_station_t::process( player_t *player, koord3d pos )
 {
@@ -5226,47 +5225,58 @@ const char *tool_build_station_t::do_work( player_t *player, const koord3d &star
 	}
 	one_click = true;
 	if(  end == koord3d::invalid  ) {
+		// single click
 		koord k;
 		k.x = start.x;
 		k.y = start.y;
 		if(  grund_t *gr=welt->lookup_kartenboden(k)  ) {
-			process(player, start);
+			return process(player, start);
 		}
+		return NULL; //TODO: set proper error message when gr is not available.
 	}
-	else {
-		koord wh, nw;
-		wh.x = abs(end.x-start.x)+1;
-		wh.y = abs(end.y-start.y)+1;
-		nw.x = min(start.x, end.x)+(wh.x/2);
-		nw.y = min(start.y, end.y)+(wh.y/2);
-		
-		int dx = (start.x < end.x) ? 1 : -1;
-		int dy = (start.y < end.y) ? 1 : -1;
-		
-		koord k;
-		for( k.x = start.x; k.x != (end.x+dx); k.x += dx) {
-			for( k.y = start.y; k.y != (end.y+dy); k.y += dy) {
-				if(  grund_t *gr=welt->lookup_kartenboden(k)  ) {
-					if( gr->ist_bruecke() ) {
-						sint8 slope = gr->get_grund_hang();
-						if (slope == slope_t::north || slope == slope_t::west || slope == slope_t::east || slope == slope_t::south) {
-							process(player, koord3d(k.x,k.y,start.z-1));
-						}
-						else if (slope == 8 || slope == 24 || slope == 56 || slope == 72) {
-							process(player, koord3d(k.x,k.y,start.z-2));
-						}
-						else {
-							process(player, koord3d(k.x,k.y,start.z));
-						}
-					}
-					else {
-						process(player, koord3d(k.x,k.y,start.z));
-					}
+	
+	// double click
+	koord wh, nw;
+	wh.x = abs(end.x-start.x)+1;
+	wh.y = abs(end.y-start.y)+1;
+	nw.x = min(start.x, end.x)+(wh.x/2);
+	nw.y = min(start.y, end.y)+(wh.y/2);
+	
+	int dx = (start.x < end.x) ? 1 : -1;
+	int dy = (start.y < end.y) ? 1 : -1;
+	
+	const char* error = NULL;
+	koord k;
+	for( k.x = start.x; k.x != (end.x+dx); k.x += dx) {
+		for( k.y = start.y; k.y != (end.y+dy); k.y += dy) {
+			grund_t *gr=welt->lookup_kartenboden(k);
+			if(  !gr  ) {
+				continue;
+			}
+			const char* e;
+			if( gr->ist_bruecke() ) {
+				sint8 slope = gr->get_grund_hang();
+				if (slope == slope_t::north || slope == slope_t::west || slope == slope_t::east || slope == slope_t::south) {
+					e = process(player, koord3d(k.x,k.y,start.z-1));
 				}
+				else if (slope == 8 || slope == 24 || slope == 56 || slope == 72) {
+					e = process(player, koord3d(k.x,k.y,start.z-2));
+				}
+				else {
+					e = process(player, koord3d(k.x,k.y,start.z));
+				}
+			}
+			else {
+				e = process(player, koord3d(k.x,k.y,start.z));
+			}
+			
+			if(  !error  ) {
+				// propagate error text
+				error = e;
 			}
 		}
 	}
-	return NULL;
+	return error;
 }
 
 
@@ -5422,7 +5432,7 @@ const char* tool_build_roadsign_t::check_pos_intern(player_t *player, koord3d po
 
 		const bool two_way = desc->is_single_way()  ||  desc->is_signal_type();
 
-		if(!(desc->is_traffic_light() || two_way)  ||  (two_way  &&  ribi_t::is_twoway(dir))  ||  (desc->is_traffic_light()  &&  ribi_t::is_threeway(dir))) {
+		if(  !two_way  ||  (two_way  &&  ribi_t::is_twoway(dir))  ) {
 			roadsign_t* rs;
 			if(  desc->is_signal_type()  ) {
 				// if there is already a signal, we might need to inverse the direction
@@ -5704,7 +5714,7 @@ const char *tool_build_roadsign_t::place_sign_intern( player_t *player, grund_t*
 
 		const bool two_way = desc->is_single_way() || desc->is_signal_type();
 
-		if(!(desc->is_traffic_light() || two_way)  ||  (two_way  &&  ribi_t::is_twoway(dir))  ||  (desc->is_traffic_light()  &&  ribi_t::is_threeway(dir))) {
+		if(  !two_way  ||  (two_way  &&  ribi_t::is_twoway(dir))  ) {
 			roadsign_t* rs;
 			if (desc->is_signal_type()) {
 				// if there is already a signal, we might need to inverse the direction
@@ -5966,7 +5976,7 @@ bool tool_build_house_t::init( player_t * player)
 }
 
 
-const char *tool_build_house_t::work( player_t *player, koord k )
+const char *tool_build_house_t::work_on_ground( player_t *player, koord k )
 {
 	const grund_t* gr = welt->lookup_kartenboden(k);
 	if(gr==NULL) {
@@ -6091,7 +6101,7 @@ const char *tool_build_house_t::do_work( player_t *player, const koord3d &start,
 		k.x = start.x;
 		k.y = start.y;
 		if(  grund_t *gr=welt->lookup_kartenboden(k)  ) {
-			return work(player, k);
+			return work_on_ground(player, k);
 		}
 	}
 	else {
@@ -6109,7 +6119,7 @@ const char *tool_build_house_t::do_work( player_t *player, const koord3d &start,
 		for( k.x = start.x; k.x != (end.x+dx); k.x += dx) {
 			for( k.y = start.y; k.y != (end.y+dy); k.y += dy) {
 				if(  grund_t *gr=welt->lookup_kartenboden(k)  ) {
-					const char* err = work(player, k);
+					const char* err = work_on_ground(player, k);
 					if(  msg==NULL  ||  strcmp(msg,"")==0  ) {
 						msg = err;
 					}
@@ -6403,7 +6413,7 @@ const char *tool_build_factory_t::work( player_t *player, koord3d pos )
 		fabrik_t *f = factory_builder_t::build_factory(NULL, fab, initial_prod, rotation, gr->get_pos(), welt->get_public_player());
 		if(f) {
 			// at least one factory has been built
-			welt->get_viewport()->change_world_position( pos );
+			// === removed on player request === welt->get_viewport()->change_world_position( pos );
 			player_t::book_construction_costs(player, welt->get_settings().cst_multiply_found_industry, pos.get_2d(), ignore_wt);
 
 			// crossconnect all?
@@ -6423,7 +6433,7 @@ const char *tool_build_factory_t::work( player_t *player, koord3d pos )
 /**
  * link tool: links products of factory one with factory two (if possible)
  */
-image_id tool_link_factory_t::get_marker_image()
+image_id tool_link_factory_t::get_marker_image() const
 {
 	return cursor;
 }
@@ -6713,14 +6723,14 @@ const char *tool_forest_t::do_work( player_t *player, const koord3d &start, cons
 	nw.x = min(start.x, end.x)+(wh.x/2);
 	nw.y = min(start.y, end.y)+(wh.y/2);
 
-	sint64 costs = baum_t::create_forest( nw, wh );
+	sint64 costs = baum_t::create_forest( nw, wh, 0, 0, welt->get_size().x, welt->get_size().y );
 	player_t::book_construction_costs(player, costs * welt->get_settings().cst_remove_tree, end.get_2d(), ignore_wt);
 
 	return NULL;
 }
 
 
-image_id tool_stop_mover_t::get_marker_image()
+image_id tool_stop_mover_t::get_marker_image() const
 {
 	return cursor;
 }
@@ -7087,7 +7097,7 @@ const char *tool_make_stop_public_t::work( player_t *player, koord3d p )
 
 
 /* merge stop */
-image_id tool_merge_stop_t::get_marker_image()
+image_id tool_merge_stop_t::get_marker_image() const
 {
 	return cursor;
 }
@@ -7190,6 +7200,7 @@ const char *tool_merge_stop_t::do_work( player_t *player, const koord3d &last_po
 	// nothing to do
 	return NULL;
 }
+
 
 bool tool_show_trees_t::init( player_t * )
 {
@@ -8273,35 +8284,35 @@ bool tool_change_traffic_light_t::init( player_t *player )
 		return false;
 	}
 	koord3d pos(pos2d, z);
-	if(  grund_t *gr = welt->lookup(pos)  ) {
-		if( roadsign_t *rs = gr->find<roadsign_t>()  ) {
-			if(  (  rs->get_desc()->is_traffic_light()  ||  rs->get_desc()->is_private_way()  )  &&  player_t::check_owner(rs->get_owner(),player)  ) {
-				if(  ns == 1  ) {
-					rs->set_ticks_ns( (uint8)ticks );
-				}
-				else if(  ns == 0  ) {
-					rs->set_ticks_ow( (uint8)ticks );
-				}
-				else if(  ns == 2  ) {
-					rs->set_ticks_offset( (uint8)ticks );
-				}
-				else if(  ns == 3  ) {
-					rs->set_open_direction( (uint8)ticks );
-				}
-				// update the window
-				if(  rs->get_desc()->is_traffic_light()  ) {
-					trafficlight_info_t* trafficlight_win = (trafficlight_info_t*)win_get_magic((ptrdiff_t)rs);
-					if (trafficlight_win) {
-						trafficlight_win->update_data();
-					}
-				}
-				else {
-					privatesign_info_t* trafficlight_win = (privatesign_info_t*)win_get_magic((ptrdiff_t)rs);
-					if (trafficlight_win) {
-						trafficlight_win->update_data();
-					}
-				}
-			}
+	const grund_t *gr = welt->lookup(pos);
+	roadsign_t *rs = gr ? gr->find<roadsign_t>() : NULL;
+	if(  !rs  ||  !player_t::check_owner(rs->get_owner(),player)  ) {
+		return false;
+	}
+	if(  !rs->get_desc()->is_traffic_light()  &&  !rs->get_desc()->is_private_way()  ) {
+		return false;
+	}
+	
+	if(  ns == 1  ) {
+		rs->set_ticks_ns( (uint8)ticks );
+	}
+	else if(  ns == 0  ) {
+		rs->set_ticks_ow( (uint8)ticks );
+	}
+	else if(  ns == 2  ) {
+		rs->set_ticks_offset( (uint8)ticks );
+	}
+	// update the window
+	if(  rs->get_desc()->is_traffic_light()  ) {
+		trafficlight_info_t* trafficlight_win = (trafficlight_info_t*)win_get_magic((ptrdiff_t)rs);
+		if (trafficlight_win) {
+			trafficlight_win->update_data();
+		}
+	}
+	else {
+		privatesign_info_t* trafficlight_win = (privatesign_info_t*)win_get_magic((ptrdiff_t)rs);
+		if (trafficlight_win) {
+			trafficlight_win->update_data();
 		}
 	}
 	return false;

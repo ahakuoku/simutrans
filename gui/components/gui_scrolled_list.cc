@@ -69,6 +69,9 @@ gui_scrolled_list_t::gui_scrolled_list_t(enum type type, item_compare_func cmp) 
 	item_list(container.get_components())
 {
 	container.set_table_layout(1,0);
+	container.set_margin( scr_size( D_H_SPACE, 0 ), scr_size( D_H_SPACE, 0 ) );
+	container.set_spacing( scr_size( D_H_SPACE, 0 ) );
+
 	set_component(&container);
 
 	this->type = type;
@@ -178,7 +181,11 @@ void gui_scrolled_list_t::set_size(scr_size size)
 void gui_scrolled_list_t::reset_container_size()
 {
 	// reset element positioning
+	container.set_margin( scr_size( D_H_SPACE, 0 ), scr_size( D_H_SPACE, 0 ) );
+	container.set_spacing( scr_size( D_H_SPACE, 0 ) );
+
 	scr_size csize = container.get_min_size();
+
 	container.set_size( csize );
 }
 

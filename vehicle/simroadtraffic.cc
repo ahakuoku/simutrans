@@ -530,9 +530,6 @@ void private_car_t::rdwr(loadsave_t *file)
 		ms_traffic_jam = 0;
 		pos_prev = koord3d::invalid;
 	}
-	
-	// do not start with zero speed!
-	current_speed ++;
 }
 
 
@@ -564,12 +561,18 @@ bool private_car_t::ist_weg_frei(grund_t *gr)
 		rs = gr->find<roadsign_t>();
 		const roadsign_desc_t* rs_desc = rs->get_desc();
 		if(rs_desc->is_traffic_light()  &&  (rs->get_dir()&current_direction90)==0) {
-			direction = current_direction90;
-			calc_image();
-			// wait here
-			current_speed = 48;
-			weg_next = 0;
-			return false;
+			// red traffic light, but we go on, if we are already on a traffic light
+			const grund_t *gr_current = welt->lookup(get_pos());
+			const roadsign_t *rs_current = gr_current ? gr_current->find<roadsign_t>() : NULL;
+			if(  !rs_current  ||  !rs_current->get_desc()->is_traffic_light()  ) {
+				// no traffic light on current tile
+				direction = current_direction90;
+				calc_image();
+				// wait here
+				current_speed = 48;
+				weg_next = 0;
+				return false;
+			}
 		}
 	}
 
@@ -657,7 +660,7 @@ bool private_car_t::ist_weg_frei(grund_t *gr)
 	
 	// do not block intersections
 	const bool drives_on_left = welt->get_settings().is_drive_left();
-	bool int_block = ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction  ||  (rs  &&  rs->get_desc()->is_traffic_light()));
+	bool int_block = (rs  &&  rs->get_desc()->is_traffic_light())  ||  (ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction));
 	
 	// stop for intersection feature is deprecated...
 	
@@ -781,23 +784,6 @@ bool private_car_t::ist_weg_frei(grund_t *gr)
 			}
 		}
 		
-		// check roadsigns
-		if(  str->has_sign()  ) {
-			rs = gr->find<roadsign_t>();
-			if(  rs  ) {
-				// since at the corner, our direction may be diagonal, we make it straight
-				if(  rs->get_desc()->is_traffic_light()  &&  (rs->get_dir() & curr_90direction)==0  ) {
-					// wait here
-					current_speed = 48;
-					weg_next = 0;
-					return false;
-				}
-			}
-		}
-		else {
-			rs = NULL;
-		}
-		
 		if(  str->get_overtaking_mode()<=oneway_mode  &&  ribi_t::is_threeway(str->get_ribi_unmasked())  ) {
 			// try to reserve tiles
 			bool overtaking_on_tile = is_overtaking();
@@ -823,7 +809,7 @@ bool private_car_t::ist_weg_frei(grund_t *gr)
 		}
 		
 		// check for blocking intersection
-		int_block = ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction  ||  (rs  &&  rs->get_desc()->is_traffic_light()));
+		int_block = (rs  &&  rs->get_desc()->is_traffic_light())  ||  (ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction));
 		
 		test_index = idx_in_scope(test_index,1);
 	}

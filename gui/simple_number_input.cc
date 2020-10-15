@@ -44,7 +44,7 @@ bool simple_number_input_frame_t::action_triggered( gui_action_creator_t *komp, 
 	return true;
 }
 
-wayobj_spacing_frame_t::wayobj_spacing_frame_t(player_t *player_, tool_build_wayobj_t* tool_) :
+wayobj_spacing_frame_t::wayobj_spacing_frame_t(player_t* /*player_*/, tool_build_wayobj_t* tool_) :
 	simple_number_input_frame_t( translator::translate("set wayobj spacing"), translator::translate("wayobj spacing"), 1, 50, tool_->get_spacing() )
 {
 	tool = tool_;
@@ -54,7 +54,7 @@ void wayobj_spacing_frame_t::register_val(uint8 v) {
 	tool->set_spacing(v);
 }
 
-height_offset_frame_t::height_offset_frame_t(player_t *player_, tool_build_way_t* tool_) :
+height_offset_frame_t::height_offset_frame_t(player_t* /*player_*/, tool_build_way_t* tool_) :
 	simple_number_input_frame_t( translator::translate("set height offset"), translator::translate("height offset"), 0, 32, tool_->get_height_offset() )
 {
 	tool = tool_;

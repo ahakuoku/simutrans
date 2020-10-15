@@ -206,7 +206,7 @@ void depot_t::convoi_arrived(convoihandle_t acnv, bool schedule_adjust)
 	acnv->set_home_depot( get_pos() );
 	DBG_MESSAGE("depot_t::convoi_arrived()", "convoi %d, %p entered depot", acnv.get_id(), acnv.get_rep());
 	
-	if(  schedule_adjust  &&  replacement_seed.is_bound()  ) {
+	if(  schedule_adjust  &&  replacement_seed.is_bound()  &&  replacement_seed!=acnv  ) {
 		// replace cars of the arrived convoy, then start it immediately.
 		replace_cars(acnv, this);
 	}
@@ -609,7 +609,7 @@ const char * depot_t::is_deletable(const player_t *player)
 	}
 
 	FOR(slist_tpl<convoihandle_t>, const c, convois) {
-		if (c->get_vehicle_count() > 0) {
+		if (  c.is_bound()  &&  c->get_vehicle_count() > 0) {
 			return "There are still vehicles\nstored in this depot!\n";
 		}
 	}

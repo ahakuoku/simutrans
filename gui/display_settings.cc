@@ -66,9 +66,15 @@ public:
 		FLAGGED_PIXVAL pc = welt->get_active_player() ? color_idx_to_rgb(welt->get_active_player()->get_player_color1()+3) : color_idx_to_rgb(COL_ORANGE);
 		const char *text = get_text_pointer();
 
-		switch( env_t::show_names >> 2 ) {
+		char ddd[ 16 ];
+		sprintf( ddd, "%d", env_t::show_names );
+		display_proportional_rgb( p.x, p.y + get_size().h/2, ddd, 0, color_idx_to_rgb(COL_BLACK), 1 );
+		p.x += 20;
+		switch( env_t::show_names>>2 ) {
 		case 0:
-			display_ddd_proportional_clip( p.x, p.y + get_size().h/2, proportional_string_width(text)+7, 0, pc, color_idx_to_rgb(COL_BLACK), text, 1 );
+			if(  env_t::show_names & 1  ) {
+				display_ddd_proportional_clip( p.x, p.y + get_size().h/2, proportional_string_width(text)+7, 0, pc, color_idx_to_rgb(COL_BLACK), text, 1 );
+			}
 			break;
 		case 1:
 			display_outline_proportional_rgb( p.x, p.y, pc+1, color_idx_to_rgb(COL_BLACK), text, 1 );
@@ -77,8 +83,6 @@ public:
 			display_outline_proportional_rgb( p.x + LINESPACE + D_H_SPACE, p.y, color_idx_to_rgb(COL_YELLOW), color_idx_to_rgb(COL_BLACK), text, 1 );
 			display_ddd_box_clip_rgb(         p.x,                     p.y,   LINESPACE,   LINESPACE,   pc-2, pc+2 );
 			display_fillbox_wh_clip_rgb(      p.x+1,                   p.y+1, LINESPACE-2, LINESPACE-2, pc,   true);
-			break;
-		case 3: // show nothing
 			break;
 		}
 	}
@@ -103,7 +107,7 @@ gui_settings_t::gui_settings_t()
 	add_component( buttons + IDBTN_CHANGE_FONT );
 
 	// add controls to info container
-	add_table(2,3);
+	add_table(2,4);
 	set_alignment(ALIGN_LEFT);
 	// Frame time label
 	new_component<gui_label_t>("Frame time:");
@@ -293,6 +297,14 @@ bool transparency_settings_t::action_triggered( gui_action_creator_t *comp, valu
 		world()->set_dirty();
 	}
 	return true;
+}
+
+
+void transparency_settings_t::draw( scr_coord offset )
+{
+	hide_buildings.set_selection( env_t::hide_buildings );
+
+	gui_aligned_container_t::draw(offset);
 }
 
 

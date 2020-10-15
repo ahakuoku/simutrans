@@ -120,7 +120,7 @@ public:
 	void new_month() OVERRIDE;
 	ribi_t::ribi get_prior_direction() const;
 
-	image_id get_front_image() const OVERRIDE {return show_masked_ribi ? skinverwaltung_t::ribi_arrow->get_image_id(get_ribi()) : weg_t::get_front_image();}
+	image_id get_front_image() const OVERRIDE;
 	
 	virtual FLAGGED_PIXVAL get_outline_colour() const OVERRIDE;
 	/*

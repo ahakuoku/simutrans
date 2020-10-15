@@ -260,10 +260,16 @@ private:
 	uint8 num_climates_at_height[128];
 
 	/**
-	 * Contains the intended climate for a tile
-	 * (needed to restore tiles after height changes)
-	 */
+	* Contains the intended climate for a tile
+	* (needed to restore tiles after height changes)
+	*/
 	array2d_tpl<uint8>climate_map;
+
+	/**
+	* Contains the intended climate for a tile
+	* (needed to restore tiles after height changes)
+	*/
+	array2d_tpl<uint8>humidity_map;
 
 	/**
 	 * Array containing the convois.
@@ -664,7 +670,7 @@ private:
 	/**
 	 * Will create lakes.
 	 */
-	void create_lakes( int xoff, int yoff );
+	void create_lakes( int xoff, int yoff, sint8 max_lake_height );
 
 	/**
 	 * Will create beaches.
@@ -1344,7 +1350,6 @@ public:
 	 /**
 	  * Initialize map.
 	  * @param sets Game settings.
-	  * @param preselected_players Defines which players the user has selected before he started the game.
 	  */
 	void init(settings_t*, sint8 const* heights);
 
@@ -1634,9 +1639,19 @@ public:
 	void calc_climate_map_region( sint16 xtop, sint16 ytop, sint16 xbottom, sint16 ybottom );
 
 	/**
-	* assign climated from the climate map to a region
+	* Calculates appropriate climate for a region using elliptic areas for each
 	*/
+	void calc_humidity_map_region( sint16 xtop, sint16 ytop, sint16 xbottom, sint16 ybottom );
+
+	/**
+	 * assign climated from the climate map to a region
+	 */
 	void assign_climate_map_region( sint16 xtop, sint16 ytop, sint16 xbottom, sint16 ybottom );
+
+	/**
+	 * Since the trees follow humidity, we have to redistribute them only in the new region
+	 */
+	void distribute_trees_region( sint16 xtop, sint16 ytop, sint16 xbottom, sint16 ybottom );
 
 	/**
 	 * Rotates climate and water transitions for a tile

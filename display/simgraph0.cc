@@ -390,6 +390,10 @@ void draw_bezier_rgb(KOORD_VAL, KOORD_VAL, KOORD_VAL, KOORD_VAL, KOORD_VAL, KOOR
 {
 }
 
+void display_right_triangle_rgb(KOORD_VAL, KOORD_VAL, KOORD_VAL, const PIXVAL, const bool)
+{
+}
+
 void display_set_progress_text(const char *)
 {
 }

@@ -74,6 +74,8 @@ enum {
 	TOOL_SET_CLIMATE,
 	TOOL_ROTATE_BUILDING,
 	TOOL_MERGE_STOP,
+	TOOL_EXEC_SCRIPT,
+	TOOL_EXEC_TWO_CLICK_SCRIPT,
 	GENERAL_TOOL_COUNT,
 	GENERAL_TOOL = 0x1000
 };
@@ -159,6 +161,7 @@ enum {
 	DIALOG_SCENARIO_INFO,
 	DIALOG_LIST_DEPOT,
 	DIALOG_LIST_VEHICLE,
+	DIALOG_SCRIPT_TOOL,
 	DIALOGE_TOOL_COUNT,
 	DIALOGE_TOOL = 0x4000
 };
@@ -273,13 +276,13 @@ public:
 	virtual bool is_selected() const;
 
 	// when true, local execution would do no harm
-	virtual bool is_init_network_save() const { return false; }
+	virtual bool is_init_network_safe() const { return false; }
 	virtual bool is_move_network_save(player_t *) const { return true; }
 
-	// if is_work_network_save()==false
+	// if is_work_network_safe()==false
 	// and is_work_here_network_save(...)==false
 	// then work-command is sent over network
-	virtual bool is_work_network_save() const { return false; }
+	virtual bool is_work_network_safe() const { return false; }
 	virtual bool is_work_here_network_save(player_t *, koord3d) { return false; }
 
 	// will draw a dark frame, if selected
@@ -416,7 +419,7 @@ private:
 	 */
 	virtual uint8 is_valid_pos( player_t *, const koord3d &pos, const char *&error, const koord3d &start ) = 0;
 
-	virtual image_id get_marker_image();
+	virtual image_id get_marker_image() const;
 
 	bool first_click_var;
 	koord3d start;
@@ -463,8 +466,8 @@ public:
 	tool_selector_t *get_tool_selector() const { return tool_selector; }
 	image_id get_icon(player_t*) const OVERRIDE;
 	bool is_selected() const OVERRIDE;
-	bool is_init_network_save() const OVERRIDE { return true; }
-	bool is_work_network_save() const OVERRIDE { return true; }
+	bool is_init_network_safe() const OVERRIDE { return true; }
+	bool is_work_network_safe() const OVERRIDE { return true; }
 	// show this toolbar
 	bool init(player_t*) OVERRIDE;
 	// close this toolbar

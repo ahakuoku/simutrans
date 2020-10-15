@@ -2737,6 +2737,8 @@ void convoi_t::rdwr(loadsave_t *file)
 		next_wolke = 0;
 		calc_loading();
 	}
+	
+	calc_min_top_speed();
 
 	// since sp_ist became obsolete, sp_soll is used modulo 65536
 	sp_soll &= 65535;
@@ -3267,6 +3269,12 @@ bool can_depart(convoihandle_t cnv, halthandle_t halt, uint32 arrived_time, uint
 	// If departure time is set to the parent, all conditions of children are ignored.
 	// Departure time settings of children have no effect.
 	if(  current_entry.get_wait_for_time()  ) {
+		if(  arrived_time==0  ) {
+			// arrived_time is not registered for some reasons. replace it to the current ticks.
+			arrived_time = world()->get_ticks();
+			cnv->set_arrived_time(arrived_time);
+			dbg->warning("can_depart", "%s: arrived time is not registered. replaced to %u", cnv->get_name(), arrived_time);
+		}
 		// consider spacing
 		// subtract wait_lock (time_to_load) from spacing_shift
 		const sint32 spacing_shift = (sint64)current_entry.spacing_shift * world()->ticks_per_world_month / world()->get_settings().get_spacing_shift_divisor();

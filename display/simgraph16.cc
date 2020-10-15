@@ -2726,10 +2726,10 @@ void display_img_stretch( const stretch_map_t &imag, scr_rect area )
 	}
 
 	// now stretch the middle
-	if(  imag[0][1]!=IMG_EMPTY  ) {
+	if(  imag[0][1]!=IMG_EMPTY  ||  imag[1][1]!=IMG_EMPTY  ) {
 		scr_rect row( area.x, area.y+h_top, area.w, area.h-h_top-h_bottom );
 		// tile it wide
-		scr_coord_val h = images[imag[0][1]].h;
+		scr_coord_val h = imag[0][1]!=IMG_EMPTY ? images[imag[0][1]].h : imag[1][1]!=IMG_EMPTY;
 		while(  h <= row.h  ) {
 			display_three_image_row( imag[0][1], imag[1][1], imag[2][1], row );
 			row.y += h;
@@ -4879,6 +4879,20 @@ void draw_bezier_rgb(KOORD_VAL Ax, KOORD_VAL Ay, KOORD_VAL Bx, KOORD_VAL By, KOO
 }
 
 
+
+// Only right facing at the moment
+void display_right_triangle_rgb(KOORD_VAL x, KOORD_VAL y, KOORD_VAL height, const PIXVAL colval, const bool dirty)
+{
+	y += (height / 2);
+	while(  height > 0  ) {
+		display_vline_wh_rgb( x, y-(height/2), height, colval, dirty );
+		x++;
+		height -= 2;
+	}
+}
+
+
+
 // ------------------- other support routines that actually interface with the OS -----------------
 
 
@@ -5174,7 +5188,7 @@ void simgraph_init(KOORD_VAL width, KOORD_VAL height, int full_screen)
  */
 int is_display_init()
 {
-	return textur != NULL  &&  default_font.is_loaded();
+	return textur != NULL  &&  default_font.is_loaded()  &&  images!=NULL;
 }
 
 

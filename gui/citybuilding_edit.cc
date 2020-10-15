@@ -237,7 +237,7 @@ void citybuilding_edit_frame_t::change_item_info(sint32 entry)
 		// the tools will be always updated, even though the data up there might be still current
 		vector_tpl<const building_desc_t*> buildings;
 		FOR(vector_tpl<sint32>, idx, scl.get_selections()) {
-			if(  idx>=0  &&  idx<building_list.get_count()  ) {
+			if(  idx>=0  &&  (uint32)idx<building_list.get_count()  ) {
 				buildings.append(building_list[idx]);
 			}
 		}

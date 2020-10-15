@@ -361,3 +361,11 @@ FLAGGED_PIXVAL strasse_t::get_outline_colour() const {
 	}
 	return 0;
 }
+
+image_id strasse_t::get_front_image() const {
+	if(  show_masked_ribi  &&  overtaking_mode<=oneway_mode  ) {
+		return skinverwaltung_t::ribi_arrow->get_image_id(get_ribi());
+	} else {
+		return weg_t::get_front_image();
+	}
+}

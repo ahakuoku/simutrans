@@ -35,7 +35,7 @@ private:
 public:
 	wayobj_spacing_frame_t( player_t *, tool_build_wayobj_t * );
 	void register_val(uint8 v) OVERRIDE;
-	const char * get_help_filename() const { return "wayobj_spacing.txt"; }
+	const char * get_help_filename() const OVERRIDE { return "wayobj_spacing.txt"; }
 };
 
 class height_offset_frame_t : public simple_number_input_frame_t
@@ -45,7 +45,7 @@ private:
 public:
 	height_offset_frame_t( player_t *, tool_build_way_t * );
 	void register_val(uint8 v) OVERRIDE;
-	const char * get_help_filename() const { return "height_offset.txt"; }
+	const char * get_help_filename() const OVERRIDE { return "height_offset.txt"; }
 };
 
 #endif

@@ -83,6 +83,25 @@ public:
 		h = resize_y;
 	}
 
+	void rotate90()
+	{
+		if(  w*h > 0  ) {
+			T *new_data = new T[w*h];
+			for(  unsigned y=0;  y<h;  y++  ) {
+				for(  unsigned x=0;  x<w;  x++  ) {
+					const unsigned nr = x+(y*w);
+					const unsigned new_nr = (h-y-1)+(x*h);
+					new_data[new_nr] = data[nr];
+				}
+			}
+			delete [] data;
+			data = new_data;
+			unsigned temp = w;
+			w = h;
+			h = temp;
+		}
+	}
+
 	// kepp old informations, new cell get default
 	void resize(unsigned resize_x, unsigned resize_y, T default_value )
 	{
