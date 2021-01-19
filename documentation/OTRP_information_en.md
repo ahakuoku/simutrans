@@ -24,11 +24,11 @@ As of version 28_1, OTRP is based on Simutrans Standard nightly r9281.
 # Download
 In addition to the executable binary, the ribi-arrow pak is required. Please download it from https://drive.google.com/open?id=0B_rSte9xAhLDanhta1ZsSVcwdzg and put it in your pakset folder.  
 
-You can download the OTRP executable binary from the links below. **(2020 October 16th, updated to ver 28_1.)**  
-windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/73812/sim-WinGDI64-OTRPv28_1.exe/  
-windows(GDI 32bit): https://osdn.net/projects/otrp/downloads/73812/sim-WinGDI-OTRPv28_1.exe/  
-mac: https://osdn.net/projects/otrp/downloads/73812/sim-mac-OTRPv28_1.zip/  
-Linux: https://osdn.net/projects/otrp/downloads/73812/sim-linux-OTRPv28_1.zip/  
+You can download the OTRP executable binary from the links below. **(2020 October 25th, updated to ver 28_2.)**  
+windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI64-OTRPv28_2.exe/  
+windows(GDI 32bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI-OTRPv28_2.exe/  
+mac: https://osdn.net/projects/otrp/downloads/73846/sim-mac-OTRPv28_2.zip/  
+Linux: https://osdn.net/projects/otrp/downloads/73846/sim-linux-OTRPv28_2.zip/  
 source code: https://github.com/teamhimeh/simutrans/tree/OTRP-distribute  
 
 There is no special makeobj for OTRP. Please use one made for Simutrans Standard.
@@ -41,7 +41,7 @@ There is no special makeobj for OTRP. Please use one made for Simutrans Standard
 
 ## For mac & linux users
 OTRP executable binaries require a library called zstd.  
-Mac: Install [homebrew](https://brew.sh/index_ja) and execute command `brew install zstd`  
+Mac: Install [homebrew](https://brew.sh/index_ja) and execute command `brew install sdl2 libpng miniupnpc freetype zstd`  
 Linux：Compile [zstd](https://github.com/facebook/zstd) from the source code and `make install`. Version 1.4.4 or later is required.
 
 # How to use
@@ -79,19 +79,6 @@ When "Left" is enabled, cars that will turn or exit left at the next intersectio
 However, lane changes can fail when there is heavy traffic.
 
 For citycars, lane assignment signs are valid only when the distance between the sign and the next intersection is less than citycar_max_look_forward (described further below.)
-
-## Traffic lights
-In Simutrans, traffic lights only control traffic on one tile. This works for Simutrans Standard, where all intersections cover only one tile. However, with OTRP, you can build four-lane roads. Therefore, intersections with these roads will cover at least two tiles. 
-
-To control such intersections, you will need to place traffic lights on all tiles of the intersection. But doing so in Simutrans Standard will prevent vehicles from making turns that cross the opposite side of the road; as shown in the image above, the timing of the traffic lights will conflict with each other. Phase offsets can be used as a workaround in Simutrans Standard, but are difficult to manage and not a good permanent solution.
-
-![TrafficLightGraphicsPart1](images/TrafficLightGraphicsPart1.png)  
-
-In OTRP, you can configure the directions from which vehicles can enter tiles during each phase of a traffic light. By adding specific entrance directions to each phase of all traffic lights in an intersection, you can resolve signal conflicts and allow traffic to turn properly. For example, in the image above, when the southern traffic light allows traffic to flow from the east to the west, it also allows traffic from the north, therefore allowing eastbound traffic to make right turns, while still blocking north-south traffic. Conversely, the northern traffic light allows traffic to enter from the south during the west-east phase, allowing westbound traffic to turn right.
-
-![TrafficLightSimuPart2](images/TrafficLightSimuPart2.png)
-
-To confirm a traffic light's current status, open its window and check the "directions" display. A number will be assigned to each direction: 1 for north, 2 for east, 4 for south, and 8 for west. The direction display will show the sum of the numbers assigned to all currently valid entrance directions. For example, if traffic is currently allowed to enter the intersection from the north and south, 5 (1+4) will be displayed.
 
 ## Change vehicle drawing position
 <img src="images/SetOffset.png" width="397">  
@@ -145,7 +132,7 @@ Finally, toggling "use same departure time for all stops" applies all departure 
 - Hold the shift key down to select multiple items in the city building construction window. City buildings are randomly chosen from the selected items and are constructed in the designated area.
 - Press the control key while selecting the wayobj construction tool in order to configure the spacing of wayobj placement.
 - Press the control key while selecting any elevated way construction tool in order to specify a height offset. This is useful for building elevated ways at very high altitudes.
-- The warning about duplicate add-on names is disabled in OTRP. The warning will be shown if Simutrans is launched with the **-showoverlay** option enabled or is launched in network mode.
+- The warning about duplicate add-on names is disabled in OTRP. The warning will be shown if Simutrans is launched with the **-showoverlay** option enabled.
 - In OTRP, long block signals reserve all tiles between it and the next signal, even if by doing so it reserves a path beyond the end of the convoy's route or next stop. This is a preliminary implementation of a feature that was discussed in the international Simutrans forum.
 - With the `-snapshot x,y,z,f` option, Simutrans takes a snapshot and immediately quits. x, y, and z are the central coordinates, and f is the zoom factor, which can range from 0 to 9.
 - The replacement seed button automates convoy replacement. In a depot, select a convoy that you wish to replace other convoys with and set it as the replacement seed. The vehicles of convoys that subsequently arrive at the depot will be replaced with vehicles of the replacement seed. Press "unregister replacement" while the seed is selected in order to end convoy replacement.
@@ -166,6 +153,7 @@ Most of these are stored in-game.
 - **stop_at_intersection_without_traffic_light**: When this is enabled, road vehicles will stop at all intersections without traffic lights. This is disabled by default.	
 - **advance_to_end** : When this is enabled, trains always advance to the ends of platforms. When false, trains stop at the exact coordinates specified in the schedule as long as the platform is long enough to accomodate the entire convoy. This is the same behavior as in Simutrans Standard, and is enabled by default.
 - **routecost_halt**, **routecost_wait**: These settings determine passenger routing behavior. A cost is assigned to each stop and transfer made along a journey, with passengers choosing journeys with the lowest cost. routecost_halt is the cost of each stop; the default value is 1. routecost_wait is the cost of each transfer, with a default value of 8.
+- **first_come_first_serve** : By changing it, the first passenger who arrives at the station or stop gets on the train first. This is disabled by default.
 
 # Compatibility
 ## Add-on compatibility

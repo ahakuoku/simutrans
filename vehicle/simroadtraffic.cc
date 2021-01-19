@@ -808,8 +808,9 @@ bool private_car_t::ist_weg_frei(grund_t *gr)
 			reserving_tiles.append(gr->get_pos());
 		}
 		
+		const roadsign_t* rst = str->has_sign() ? gr->find<roadsign_t>() : NULL;
 		// check for blocking intersection
-		int_block = (rs  &&  rs->get_desc()->is_traffic_light())  ||  (ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction));
+		int_block = (rst  &&  rst->get_desc()->is_traffic_light())  ||  (ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction));
 		
 		test_index = idx_in_scope(test_index,1);
 	}

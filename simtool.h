@@ -459,6 +459,7 @@ class tool_build_station_t : public two_click_tool_t {
 	const char *tool_station_flat_dock_aux(player_t *, koord3d, const building_desc_t *, sint8 );
 	const char *tool_station_aux(player_t *, koord3d, const building_desc_t *, waytype_t, const char *halt_suffix );
 	const building_desc_t *get_desc( sint8 &rotation ) const;
+	bool change_platform_face(gebaeude_t* gb);
 	
   public:
 	tool_build_station_t() : two_click_tool_t(TOOL_BUILD_STATION | GENERAL_TOOL) {one_click = true;}

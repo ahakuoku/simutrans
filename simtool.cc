@@ -4847,6 +4847,9 @@ DBG_MESSAGE("tool_station_aux()", "building %s on square %d,%d for waytype %x", 
 		const building_desc_t *old_desc = gb->get_tile()->get_desc();
 		if(  old_desc == desc  ) {
 			// already has the same station
+			if(  is_ctrl_pressed()  ) {
+				change_platform_face(gb);
+			}
 			return NULL;
 		}
 		if(  old_desc->get_capacity() >= desc->get_capacity()  &&  !is_ctrl_pressed()  ) {
@@ -4908,6 +4911,20 @@ DBG_MESSAGE("tool_station_aux()", "building %s on square %d,%d for waytype %x", 
 
 	return NULL;
 }
+
+
+bool tool_build_station_t::change_platform_face(gebaeude_t* gb) {
+	const building_desc_t *gb_desc = gb->get_tile()->get_desc();
+	if(  gb_desc->get_all_layouts() < 16  ) {
+		return false;
+	}
+	uint8 layout = gb->get_tile()->get_layout();
+	layout = (layout & (~8)) | (~layout&8); // invert 4th bit (1<<3)
+	const building_tile_desc_t* const new_tile = gb_desc->get_tile(layout, 0, 0);
+	gb->set_tile( new_tile, false );
+	return true;
+}
+
 
 // gives the description and sets the rotation value
 const building_desc_t *tool_build_station_t::get_desc( sint8 &rotation ) const
