@@ -41,7 +41,8 @@ public:
 		NO_LOAD           = 1U << 2, // The convoy loads nothing here.
 		NO_UNLOAD         = 1U << 3, // The convoy unloads nothing here.
 		WAIT_FOR_TIME     = 1U << 4, // The convoy waits for the departure time.
-		UNLOAD_ALL         = 1U << 5 // The convoy unloads all loads here.
+		UNLOAD_ALL        = 1U << 5, // The convoy unloads all loads here.
+		LOAD_BEFORE_DEP   = 1U << 6, // The convoy loads just before the departure.
 	};
 
 	/**
@@ -93,6 +94,8 @@ public:
 	void set_unload_all(bool y) { y ? stop_flags |= UNLOAD_ALL : stop_flags &= ~UNLOAD_ALL; }
 	bool get_wait_for_time() const { return (stop_flags&WAIT_FOR_TIME)>0; }
 	void set_wait_for_time(bool y) { y ? stop_flags |= WAIT_FOR_TIME : stop_flags &= ~WAIT_FOR_TIME; }
+	bool is_load_before_departure() const { return (stop_flags&LOAD_BEFORE_DEP)>0; }
+	void set_load_before_departure(bool y) { y ? stop_flags |= LOAD_BEFORE_DEP : stop_flags &= ~LOAD_BEFORE_DEP; }
 	uint8 get_stop_flags() const { return stop_flags; }
 	void set_stop_flags(uint8 f) { stop_flags = f; }
 	

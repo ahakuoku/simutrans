@@ -296,8 +296,6 @@ settings_t::settings_t() :
 	frames_per_second = 20;
 	frames_per_step = 4;
 	server_frames_ahead = 4;
-
-	stop_at_intersection_without_traffic_light = false;
 	
 	citycar_max_look_forward = 15;
 	citycar_route_weight_crowded = 20;
@@ -898,8 +896,10 @@ void settings_t::rdwr(loadsave_t *file)
 			file->rdwr_byte(max_ship_convoi_length);
 			file->rdwr_byte(max_air_convoi_length);
 		}
-		if(  file->get_OTRP_version() >= 14  ) {
-			file->rdwr_bool(stop_at_intersection_without_traffic_light);
+		if(  file->get_OTRP_version() >= 14  &&  file->get_OTRP_version() < 29  ) {
+			// deprecated: stop_at_intersection_without_traffic_light
+			bool dummy;
+			file->rdwr_bool(dummy);
 		}
 		if(  file->get_OTRP_version() >= 16  ) {
 			file->rdwr_short(citycar_max_look_forward);
@@ -1575,8 +1575,6 @@ void settings_t::parse_simuconf( tabfile_t& simuconf, sint16& disp_width, sint16
 	max_road_convoi_length = contents.get_int("max_road_convoi_length",max_road_convoi_length);
 	max_ship_convoi_length = contents.get_int("max_ship_convoi_length",max_ship_convoi_length);
 	max_air_convoi_length = contents.get_int("max_air_convoi_length",max_air_convoi_length);
-
-	stop_at_intersection_without_traffic_light = contents.get_int("stop_at_intersection_without_traffic_light", stop_at_intersection_without_traffic_light);
 	
 	citycar_max_look_forward = contents.get_int("citycar_max_look_forward", citycar_max_look_forward);
 	citycar_route_weight_crowded = contents.get_int("citycar_route_weight_crowded", citycar_route_weight_crowded);

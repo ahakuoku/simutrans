@@ -3,10 +3,11 @@
 #define _SQSTD_STREAM_H_
 
 SQInteger _stream_readblob(HSQUIRRELVM v);
-SQInteger _stream_readline(HSQUIRRELVM v);
 SQInteger _stream_readn(HSQUIRRELVM v);
+SQInteger _stream_readstr(HSQUIRRELVM v);
 SQInteger _stream_writeblob(HSQUIRRELVM v);
 SQInteger _stream_writen(HSQUIRRELVM v);
+SQInteger _stream_writestr(HSQUIRRELVM v);
 SQInteger _stream_seek(HSQUIRRELVM v);
 SQInteger _stream_tell(HSQUIRRELVM v);
 SQInteger _stream_len(HSQUIRRELVM v);

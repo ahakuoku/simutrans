@@ -464,6 +464,10 @@ public:
 	
 	/// statistical log string of otrp
 	static char otrp_statistics_log[PATH_MAX];
+	
+	/// show ribi arrow on twoway_mode road or not.
+	/// true -> oneway or halt mode only.
+	static bool show_oneway_ribi_only;
 
 	/// initialize with default values
 	static void init();

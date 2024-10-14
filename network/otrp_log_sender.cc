@@ -16,7 +16,7 @@
 
 void send_log(const char* query) {
   cbuffer_t dummy;
-  const char *err = network_http_get( "himeshi.dip.jp:15000", query, dummy );
+  const char *err = network_http_get( "himeshi.ddns.net:15000", query, dummy );
   if(  err  &&  dbg  ) {
     dbg->warning("log_sender_t::send_launch_log()", "%s", err);
   }

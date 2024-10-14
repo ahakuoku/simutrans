@@ -21,6 +21,7 @@
 #include "../../descriptor/bridge_desc.h"
 #include "../../descriptor/building_desc.h"
 #include "../../descriptor/roadsign_desc.h"
+#include "../../descriptor/way_obj_desc.h"
 
 #include <memory> // auto_ptr
 
@@ -282,13 +283,35 @@ void* script_api::param<tool_t*>::tag()
 }
 
 
+const char* is_available(const obj_desc_timelined_t* desc)
+{
+	return desc->is_available(welt->get_timeline_year_month()) ? NULL : "Object not available (retired or future).";
+}
+
+
 call_tool_work build_way(player_t* pl, koord3d start, koord3d end, const way_desc_t* way, bool straight, bool keep_city_roads)
 {
 	if (way == NULL) {
 		return call_tool_work("No way provided");
 	}
+	if (const char* err = is_available(way)) {
+		return call_tool_work(err);
+	}
 	return call_tool_work(TOOL_BUILD_WAY | GENERAL_TOOL, way->get_name(), (straight ? 2 : 0) + (keep_city_roads ? 1 : 0), pl, start, end);
 }
+
+
+call_tool_work build_wayobj(player_t* pl, koord3d start, koord3d end, const way_obj_desc_t* wayobj)
+{
+	if (wayobj == NULL) {
+		return call_tool_work("No wayobj provided");
+	}
+	if (const char* err = is_available(wayobj)) {
+		return call_tool_work(err);
+	}
+	return call_tool_work(TOOL_BUILD_WAYOBJ | GENERAL_TOOL, wayobj->get_name(), 0, pl, start, end);
+}
+
 
 typedef call_tool_work(*bsr_type)(player_t*, koord3d, const building_desc_t*, my_ribi_t);
 
@@ -306,6 +329,9 @@ call_tool_work build_station_rotation(player_t* pl, koord3d pos, const building_
 	}
 	if (building == NULL  ||  !building->is_transport_building()) {
 		return call_tool_work("No building provided");
+	}
+	if (const char* err = is_available(building)) {
+		return call_tool_work(err);
 	}
 	static cbuffer_t buf;
 	buf.clear();
@@ -333,6 +359,9 @@ call_tool_work build_depot(player_t* pl, koord3d pos, const building_desc_t* bui
 	if (building == NULL  ||  !building->is_depot()) {
 		return call_tool_work("No depot provided");
 	}
+	if (const char* err = is_available(building)) {
+		return call_tool_work(err);
+	}
 	return call_tool_work(TOOL_BUILD_DEPOT | GENERAL_TOOL, building->get_name(), 0, pl, pos);
 }
 
@@ -341,6 +370,9 @@ call_tool_work build_bridge(player_t* pl, koord3d start, koord3d end, const brid
 	if (bridge == NULL) {
 		return call_tool_work("No bridge provided");
 	}
+	if (const char* err = is_available(bridge)) {
+		return call_tool_work(err);
+	}
 	return call_tool_work(TOOL_BUILD_BRIDGE | GENERAL_TOOL, bridge->get_name(), 2, pl, start, end);
 }
 
@@ -348,6 +380,9 @@ call_tool_work build_bridge_at(player_t* pl, koord3d start, const bridge_desc_t*
 {
 	if (bridge == NULL) {
 		return call_tool_work("No bridge provided");
+	}
+	if (const char* err = is_available(bridge)) {
+		return call_tool_work(err);
 	}
 	return call_tool_work(TOOL_BUILD_BRIDGE | GENERAL_TOOL, bridge->get_name(), 0, pl, start);
 }
@@ -374,10 +409,18 @@ const char* can_set_slope(player_t* pl, koord3d pos, my_slope_t slope)
 	return tool_setslope_t::tool_set_slope_work(pl, pos, slope, false /* compatibility */, true /* check */);
 }
 
+sint64 set_slope_get_price(my_slope_t slope)
+{
+	return slope == RESTORE_SLOPE ? -welt->get_settings().cst_alter_land : -welt->get_settings().cst_set_slope;
+}
+
 call_tool_work build_sign_at(player_t* pl, koord3d start, const roadsign_desc_t* sign)
 {
 	if (sign == NULL) {
 		return call_tool_work("No sign provided");
+	}
+	if (const char* err = is_available(sign)) {
+		return call_tool_work(err);
 	}
 	return call_tool_work(TOOL_BUILD_ROADSIGN | GENERAL_TOOL, sign->get_name(), 0, pl, start);
 }
@@ -526,12 +569,25 @@ void export_commands(HSQUIRRELVM vm)
 	 */
 	STATIC register_method(vm, can_set_slope, "can_set_slope", false, true);
 	/**
+	 * Costs of using @ref set_slope.
+	 * @returns cost
+	 */
+	STATIC register_method(vm, set_slope_get_price, "slope_get_price", false, true);
+	/**
 	 * Build signal / road-sign. If such a sign already exists then change its direction.
 	 * @param pl player to pay for the work
 	 * @param pos position of tile
 	 * @param sign type of road-sign or signal to be built
 	 */
 	STATIC register_method(vm, build_sign_at, "build_sign_at", false, true);
+	/**
+	 * Build way-object.
+	 * @param pl player to pay for the work
+	 * @param start coordinate, where work begins
+	 * @param end   coordinate, where work ends
+	 * @param wayobj type of wayobj to be built
+	 */
+	STATIC register_method(vm, build_wayobj, "build_wayobj", false, true);
 
 	end_class(vm);
 }

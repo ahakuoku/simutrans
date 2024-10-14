@@ -45,6 +45,7 @@ enum {
 	IDBTN_SIMPLE_DRAWING,
 	IDBTN_CHANGE_FONT,
 	IDBTN_RIBI_ARROW,
+	IDBTN_ONEWAY_RIBI_ONLY,
 	COLORS_MAX_BUTTONS, 
 };
 
@@ -403,6 +404,9 @@ traffic_settings_t::traffic_settings_t()
 	buttons[IDBTN_RIBI_ARROW].init(button_t::square_state, "show connected directions");
 	buttons[IDBTN_RIBI_ARROW].pressed = strasse_t::show_masked_ribi;
 	add_component(buttons+IDBTN_RIBI_ARROW, 2);
+	buttons[IDBTN_ONEWAY_RIBI_ONLY].init(button_t::square_state, "show directions only for oneway roads");
+	buttons[IDBTN_ONEWAY_RIBI_ONLY].pressed = env_t::show_oneway_ribi_only;
+	add_component(buttons+IDBTN_ONEWAY_RIBI_ONLY, 2);
 
 	end_table();
 }
@@ -570,6 +574,9 @@ bool color_gui_t::action_triggered( gui_action_creator_t *comp, value_t)
 	case IDBTN_RIBI_ARROW:
 		strasse_t::show_masked_ribi ^= 1;
 		break;
+	case IDBTN_ONEWAY_RIBI_ONLY:
+		env_t::show_oneway_ribi_only ^= 1;
+		break;
 	default:
 		assert( 0 );
 	}
@@ -603,6 +610,8 @@ void color_gui_t::draw(scr_coord pos, scr_size size)
 	buttons[IDBTN_TRANSPARENT_INSTEAD_OF_HIDDEN].pressed = env_t::hide_with_transparency;
 	buttons[IDBTN_RIBI_ARROW].pressed = strasse_t::show_masked_ribi;
 	buttons[IDBTN_RIBI_ARROW].enable(skinverwaltung_t::ribi_arrow!=NULL);
+	buttons[IDBTN_ONEWAY_RIBI_ONLY].pressed = env_t::show_oneway_ribi_only;
+	buttons[IDBTN_ONEWAY_RIBI_ONLY].enable(skinverwaltung_t::ribi_arrow!=NULL);
 
 	// All components are updated, now draw them...
 	gui_frame_t::draw(pos, size);

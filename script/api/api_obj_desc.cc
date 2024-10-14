@@ -18,6 +18,7 @@
 #include "../../descriptor/vehicle_desc.h"
 #include "../../descriptor/goods_desc.h"
 #include "../../descriptor/roadsign_desc.h"
+#include "../../descriptor/way_obj_desc.h"
 #include "../../bauer/brueckenbauer.h"
 #include "../../bauer/hausbauer.h"
 #include "../../bauer/tunnelbauer.h"
@@ -25,6 +26,7 @@
 #include "../../bauer/goods_manager.h"
 #include "../../bauer/wegbauer.h"
 #include "../../obj/roadsign.h"
+#include "../../obj/wayobj.h"
 #include "../../simhalt.h"
 #include "../../simware.h"
 #include "../../simworld.h"
@@ -251,6 +253,29 @@ bool is_traffic_light(const roadsign_desc_t *d)
 }
 
 
+sint64 tree_get_price()
+{
+	return -welt->get_settings().cst_remove_tree;
+}
+
+
+const vector_tpl<const way_obj_desc_t*>& get_available_wayobjs(waytype_t wt)
+{
+	static vector_tpl<const way_obj_desc_t*> dummy;
+
+	uint16 time = welt->get_timeline_year_month();
+
+	dummy.clear();
+	FOR(stringhashtable_tpl<const way_obj_desc_t*> const, i, wayobj_t::get_list()) {
+		const way_obj_desc_t* desc = i.value;
+		if (desc->get_waytype()==wt  &&  desc->is_available(time)) {
+			dummy.append(desc);
+		}
+	}
+	return dummy;
+}
+
+
 void export_goods_desc(HSQUIRRELVM vm)
 {
 	/**
@@ -314,7 +339,7 @@ void export_goods_desc(HSQUIRRELVM vm)
 	 */
 	register_local_method(vm, &get_scaled_maintenance, "get_maintenance");
 	/**
-	 * @returns cost [in 1/100 credits] to buy or build on piece or tile of this thing.
+	 * @returns cost [in 1/100 credits] to buy or build one piece or tile of this thing.
 	 */
 	register_method(vm, &obj_desc_transport_related_t::get_price, "get_cost");
 	/**
@@ -687,11 +712,24 @@ void export_goods_desc(HSQUIRRELVM vm)
 	 */
 	register_method(vm, &roadsign_desc_t::is_end_choose_signal, "is_end_choose_signal");
 	/**
-	 * Returns a list with available bridge types.
+	 * Returns a list with available sign types.
 	 * @param wt waytype
 	 */
 	STATIC register_method(vm, roadsign_t::get_available_signs, "get_available_signs", false, true);
 
 	end_class(vm);
-
+	/**
+	 * Descriptor of way-objects.
+	 */
+	begin_desc_class(vm, "wayobj_desc_x", "obj_desc_transport_x", (GETDESCFUNC)param<const way_obj_desc_t*>::getfunc());
+	/**
+	 * @returns true for over-head lines.
+	 */
+	register_method(vm, &way_obj_desc_t::is_overhead_line, "is_overhead_line");
+	/**
+	 * Returns a list with available wayobj-types.
+	 * @param wt waytype
+	 */
+	STATIC register_method(vm, get_available_wayobjs, "get_available_wayobjs", false, true);
+	end_class(vm);
 }

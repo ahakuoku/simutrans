@@ -48,7 +48,7 @@ class schedule_gui_t : public gui_frame_t, public action_listener_t
 
 	// always needed
 	button_t bt_add, bt_insert, bt_remove; // stop management
-	button_t bt_return;
+	button_t bt_revert, bt_return;
 	button_t bt_wait_load;
 
 	gui_label_t lb_wait, lb_load;
@@ -59,7 +59,8 @@ class schedule_gui_t : public gui_frame_t, public action_listener_t
 	button_t bt_extract_settings;
 	button_t bt_find_parent, bt_wait_for_child; // convoy coupling
 	button_t bt_no_load, bt_no_unload, bt_tmp_schedule, bt_wait_for_time, 
-		bt_same_dep_time, bt_full_load_acceleration, bt_unload_all;
+		bt_same_dep_time, bt_full_load_acceleration, bt_unload_all,
+		bt_load_before_departure;
 	gui_numberinput_t numimp_spacing, numimp_spacing_shift, 
 		numimp_delay_tolerance, numimp_max_speed;
 	gui_label_t lb_spacing, lb_title1, lb_title2, lb_max_speed;

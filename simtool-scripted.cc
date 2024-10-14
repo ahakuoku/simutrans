@@ -138,6 +138,14 @@ void exec_script_base_t::load_script(const char* path, player_t* player)
 			script = NULL;
 		}
 	}
+	// older versions did not support the flags parameter - correct with helper function
+	if (const char* err = script->call_function(script_vm_t::QUEUE, "correct_missing_flags_argument")) {
+		if (strcmp(err, "suspended")) {
+			dbg->error("tool_exec_script_t::load_script", "error [%s] calling correct_missing_flags_argument", err);
+			delete script;
+			script = NULL;
+		}
+	}
 }
 
 
@@ -154,7 +162,7 @@ void export_scripted_tools(HSQUIRRELVM vm)
 		return ""; \
 	}
 #define check_error() \
-	if (err  &&  strcmp(err, "suspended")==0) {\
+	if (err  &&  strcmp(err, "suspended")) {\
 		dbg->warning("tool_exec_script_t::call_function", "error calling %s: %s", function, err);\
 	}
 
@@ -184,6 +192,16 @@ const char* exec_script_base_t::call_function(script_vm_t::call_type_t ct, const
 	check_error();
 	return err;
 }
+
+template<class R, class A1, class A2, class A3>
+const char* exec_script_base_t::call_function(script_vm_t::call_type_t ct, const char* function, player_t* player, R& ret, A1 arg1, A2 arg2, A3 arg3)
+{
+	check_script();
+	const char* err = script->call_function(ct, function, ret, player, arg1, arg2, arg3);
+	check_error();
+	return err;
+}
+
 
 
 void exec_script_base_t::step(player_t* player)
@@ -220,6 +238,15 @@ tool_exec_script_t::tool_exec_script_t(const scripted_tool_info_t *info) : tool_
 bool tool_exec_script_t::init(player_t* player)
 {
 	bool res = false;
+	cursor_area = get_cursor_area();
+	cursor_offset = get_cursor_offset();
+	// rotate area and offset
+	for(uint8 i=0;  i<world()->get_settings().get_rotation();  i++) {
+		koord old_area = cursor_area;
+		koord old_offset = cursor_offset;
+		cursor_area = koord(old_area.y, old_area.x);
+		cursor_offset = koord(old_area.y-1-old_offset.y, old_offset.x);
+	}
 	return init_vm(player)  &&  call_function(script_vm_t::FORCE, "init", player, res)== NULL  &&  res;
 }
 
@@ -242,7 +269,8 @@ const char* tool_exec_script_t::work(player_t* player, koord3d pos)
 	// callback
 	script->prepare_callback("exec_script_base_work_callback", 3, (exec_script_base_t*)this, player, "");
 	// now call
-	const char* err = call_function(script_vm_t::QUEUE, "work", player, res, pos);
+	uint8 keys = flags & (tool_t::WFL_SHIFT  |  tool_t::WFL_CTRL);
+	const char* err = call_function(script_vm_t::QUEUE, "work", player, res, pos, keys);
 	if (err  &&  strcmp(err, "suspended")==0) {
 		// suspended
 	}
@@ -318,7 +346,8 @@ const char* tool_exec_two_click_script_t::do_work(player_t* player, const koord3
 	// callback
 	script->prepare_callback("exec_script_base_work_callback", 3, (exec_script_base_t*)this, player, "");
 	// now call
-	const char* err = call_function(script_vm_t::QUEUE, "do_work", player, res, start, end);
+	uint8 keys = flags & (tool_t::WFL_SHIFT  |  tool_t::WFL_CTRL);
+	const char* err = call_function(script_vm_t::QUEUE, "do_work", player, res, start, end, keys);
 	if (err  &&  strcmp(err, "suspended")==0) {
 		// suspended
 		waiting_for_do_work = true;
@@ -338,7 +367,8 @@ void  tool_exec_two_click_script_t::mark_tiles(player_t* player, const koord3d &
 	}
 	bool dummy;
 	// try to mark; if script is busy, do nothing
-	call_function(script_vm_t::TRY, "mark_tiles", player, dummy, start, end);
+	uint8 keys = flags & (tool_t::WFL_SHIFT  |  tool_t::WFL_CTRL);
+	call_function(script_vm_t::TRY, "mark_tiles", player, dummy, start, end, keys);
 }
 
 

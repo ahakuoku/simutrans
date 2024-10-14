@@ -19,16 +19,16 @@
 本家フォーラム: https://forum.simutrans.com/index.php?topic=16659.0  
 Twitterハッシュタグ： [#OTRPatch](https://twitter.com/hashtag/OTRPatch?src=hash)
 
-version28_1現在，simutrans standard nightly r9281をベースにしています．
+version30現在，simutrans standard nightly r9281をベースにしています．  
+追加で取り込んでいるコミットについては [こちらを参照](cherry-picked-commits.txt) してください．
 
 # ダウンロード
-実行には本体の他にribi-arrowアドオンが必要なので https://drive.google.com/open?id=0B_rSte9xAhLDanhta1ZsSVcwdzg からDLしてpakセットの中に突っ込んでください．  
+実行には本体の他にribi-arrowアドオンが必要なので https://osdn.net/projects/otrp/downloads/76098/RibiArrow.zip/ からDLしてpakセットの中に突っ込んでください．  
 
-本体は下のリンクからどうぞ．**（2020年10月25日PM3時　ver28_2に更新）**  
-windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI64-OTRPv28_2.exe/  
-windows(GDI 32bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI-OTRPv28_2.exe/  
-mac: https://osdn.net/projects/otrp/downloads/73846/sim-mac-OTRPv28_2.zip/  
-Linux: https://osdn.net/projects/otrp/downloads/73846/sim-linux-OTRPv28_2.zip/  
+本体は下のリンクからどうぞ．**（2021年8月15日PM9時　ver30に更新）**  
+windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/75752/sim-WinGDI64-OTRPv30.exe/  
+mac: https://osdn.net/projects/otrp/downloads/75752/sim-mac-OTRPv30.zip/  
+Linux: https://osdn.net/projects/otrp/downloads/75752/sim-linux-OTRPv30.zip/  
 ソース: https://github.com/teamhimeh/simutrans/tree/OTRP-distribute  
 
 OTRP専用のmakeobjはありません．simutrans standardのmakeobjをご利用ください．
@@ -53,7 +53,7 @@ OTRPは使い方を知らなくてもstandardと同じように遊べるよう�
 ## 道路の設定
 ![fig1](images/fig1.png)  
 道路アイコンを**Ctrlキーを押しながら**選択すると追い越しモード等を設定できます．
-  
+
 [追越モード]
 - oneway: 道路を一方通行にして二車線同じ方向で通行するモードです．このモードの時は道路が一方通行になるので建設時は「:（コロン）」を押して接続方向を確認してください．
 - halt mode: 停留所において追越車線でも客扱い・荷捌きをします．走行中の挙動はonewayと同じです．
@@ -104,6 +104,7 @@ OTRPでは高度なスケジュール設定により，より柔軟な運行が�
 - **乗車不可(No Load)**：この停留所で乗車・積載が不可能になります．すなはち，降車専用になります．
 - **降車不可(No Unload)**：この停留所で降車・荷降ろしが不可能になります．すなはち，乗車専用になります．
 - **全員降車(Unload All)**：この停留所ですべての積載物を一度降ろします．すなはち，乗り換え扱いになります．
+- **出発直前に積載(Load before departure)**：発車時刻まで待機している間は積載しません．
 
 乗車不可・降車不可を両方有効にすると，乗車・降車ともにできなくなりますので，運転停車となります．
 
@@ -126,6 +127,49 @@ OTRPでは高度なスケジュール設定により，より柔軟な運行が�
 
 「全て同じ発車時刻設定を適用」を有効にすると，それを有効にして以降の発車本数，オフセット，遅延許容の設定がそのスケジュールの全エントリに適用されます．
 
+## Squirrel API
+
+### IOライブラリ
+
+OTRP v29_5より，Squirrel Standard Libraryのうち，[I/Oライブラリ](http://www.squirrel-lang.org/squirreldoc/stdlib/stdiolib.html) が追加で利用できるようになっています．また，マルチバイト文字を扱うために`file` クラスに以下の関数が追加されています．
+
+- `file.readstr(n)` ... 最大n（`integer` ）バイトの文字列をファイルから読み，`String` で返します．
+- `file.writestr(str)` ... ファイルに`String` 型文字列 `str` を書き込みます．
+
+例）
+
+```squirrel
+local myfile = file("myfile.txt","r")
+local txt = myfile.readstr(100)
+print(txt)
+myfile.close()
+  
+myfile = file("out.txt","w")
+myfile.writestr("Simutransへようこそ")
+myfile.close()  
+```
+
+### guiクラス
+
+OTRP v29_6より、[guiクラス](http://dwachs.github.io/simutrans-sqapi-doc/classgui.html) に以下の関数が追加されています。
+
+- static void **jump** (coord pos) ... 指定された座標に画面をジャンプします。
+- static void **close_all_windows** () ... 画面中のすべてのウィンドウを閉じます。
+- static void **take_screenshot** () ... スクリーンショットを撮ります。
+- static void **set_zoom** (int val) ... 画面の拡大率を指定します。拡大率（`val`）は0（最小）〜9（最大）の10段階です。
+
+## スクリプトジェネレーター
+
+マップ内の線路や駅舎などを建設スクリプト化する機能です．スロープ（坂），way，wayobj，標識・信号，駅舎がSquirrel script化されます．  
+出力されるスクリプトの動作には[ひめしツールキット](https://www.japanese.simutrans.com/index.php?%A5%B9%A5%AF%A5%EA%A5%D7%A5%C8%B3%AB%C8%AF#q6664af6)が必要です．ダウンロードした上で，ライブラリファイルを同梱してお使いください．
+
+### 使い方
+
+1. general_tool[44]を呼び出します．（menuconf.tabでキーを割り当ててください．例：`general_tool[44]=,,,|` で「|」キーが割り当てられます． ）
+1. スクリプト化する範囲をドラッグで選択してください．ドラッグの起点が基準点になります．
+1. 保存ダイアログが出現するので，ファイル名を入力し保存してください．拡張子「.nut」は自動で付加されます．
+1. ファイルは`simutrans/generated-scripts/`に出力されます．適当なdescription.tabを書いた上で，hm_toolkit_v1.nutと合わせてご利用ください．
+
 ## その他
 - 運賃収受に伴う金額表示をON/OFFできるようになりました．表示設定ウィンドウから切り替えられるほか，simple_tool[38]にキーを割り当てることでも切り替えることができます．
 - 交差点でのスムーズな通行を実現するため，交差点タイルでは車両がタイルを予約しています．予約状況は鉄道の閉塞予約解除ツール（bキー）を使うことで確認できます．タイルをクリックすることで予約を手動で解除することもできます．
@@ -140,6 +184,7 @@ OTRPでは高度なスケジュール設定により，より柔軟な運行が�
 - 起動時に`-snapshot x,y,z,f`オプションで起動すると，スナップショットを撮影して終了します．x,y,zは中心座標，fはズーム率（0から9まで）です．異なるセーブファイルである固定地点のスクリーンショットを撮りたいときなどに便利です．
 - 車庫画面で「置換編成に登録」を押すと，車庫に到着した編成の組成をその編成と同じにします．
 - 路線ごとに駅間所要時間を表示できます．路線一覧ウィンドウから利用できます．時刻の単位は発車時間指定に使われているものです．
+- 駅一覧ウィンドウのオプションで，「公共駅を含める」を有効にすると，自社の乗り入れがある公共駅も駅一覧ウィンドウに表示されます．
 
 # 設定項目
 主にsimuconf.tabや「高度な設定」で編集する項目です．  
@@ -156,7 +201,6 @@ OTRPでは高度なスケジュール設定により，より柔軟な運行が�
 - citycarは渋滞などにより交差点手前で停車している時，一定間隔（1倍速で約2秒おき）でルートの再検索を行います．適切に設定されたパラメータのもとでは，これによりデッドロックを予防することができます．
 
 ## その他
-- **stop_at_intersection_without_traffic_light**（経済タブにあります）のチェックを入れることで，車両が信号機ナシ交差点の手前で特定の条件に従って一時停止するようになります．デフォルトでは無効です．
 - **advance_to_end**（ルートタブにあります）のチェックを外すことで列車のホームでの停車位置が実際に指定した位置になります．（デフォルトではstandardと同じく指定位置にかかわらず列車は先頭まで進みます．）なお指定した位置で編成がおさまらないときは編成全体がおさまるまで前進します．（extendedと同じです．）
 - **routecost_halt**, **routecost_wait** （ルートタブにあります）を変更することで，旅客の乗り換え駅を制御することができます．routecost_haltは1駅ごとのルートコスト，routecost_waitは1回乗り換えするごとのルートコストです．デフォルト値はそれぞれ1と8です．
 - **first_come_first_serve**（ルートタブにあります）のチェックを入れることで，駅，停留所に先に来た乗客から車両に乗るようになります．デフォルトでは無効です．
@@ -195,3 +239,4 @@ OTRPはSimutrans Standardからの派生物ですので，Standardのライセ�
 
 [1]:https://twitter.com/shingoushori
 [2]:https://twitter.com/hypersimu
+

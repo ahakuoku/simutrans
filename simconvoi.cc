@@ -789,6 +789,7 @@ void convoi_t::calc_acceleration(uint32 delta_t)
 			c->reset_recalc_min_top_speed();
 			c = c->get_coupling_convoi();
 		}
+		recalc_data = true;
 	}
 
 	// only compute this if a vehicle in the convoi hopped
@@ -1677,7 +1678,7 @@ void convoi_t::new_month()
 }
 
 
-void convoi_t::betrete_depot(depot_t *dep)
+void convoi_t::betrete_depot(depot_t *dep, bool is_loading)
 {
 	// first remove reservation, if train is still on track
 	unreserve_route();
@@ -1699,7 +1700,7 @@ void convoi_t::betrete_depot(depot_t *dep)
 
 	maxspeed_average_count = 0;
 	state = INITIAL;
-	dep->convoi_arrived(self, get_schedule());
+	dep->convoi_arrived(self, !is_loading  &&  get_schedule());
 }
 
 
@@ -2918,7 +2919,7 @@ void convoi_t::rdwr(loadsave_t *file)
 		}
 		file->rdwr_short( next_reservation_index );
 		// If this convoy is an aircraft, next_reservation_index must be 0. sanitaze next_reservation_index because next_reservation_index often be an illegal number. The cause of this problem is still not found!
-		const waytype_t typ = front()->get_waytype();
+		const waytype_t typ = front() ? front()->get_waytype() : track_wt;
 		const bool rail_convoy = typ==track_wt  ||  typ==tram_wt  ||  typ==maglev_wt  ||  typ==monorail_wt  ||  typ==narrowgauge_wt;
 		if(  !rail_convoy  &&  next_reservation_index!=0  &&  file->is_loading()  ) {
 			dbg->warning( "convoi_t::rdwr()","next_reservation_index of convoy %d is %d while this is not a rail convoy. next_reservation_index is sanitized to 0.", self.get_id(), next_reservation_index );
@@ -3236,7 +3237,7 @@ void convoi_t::calc_gewinn()
 
 // a helper function to compare two ticks considering ticks overflow
 bool is_first_ticks_bigger(uint32 v1, uint32 v2) {
-	return (v1 > v2)  &&  (v1 - v2 < (1<<30));
+	return (v1>v2  &&  v1-v2<(1<<30))  ||  (v2>v1  &&  v2-v1>(1<<30));
 }
 
 
@@ -3417,6 +3418,11 @@ station_tile_search_ready: ;
 
 	// cargo type of previous vehicle that could not be filled
 	const goods_desc_t* cargo_type_prev = NULL;
+	bool loading_needed = !no_load  &&  !next_depot;
+	// When load_before_departure is enabled, load cargos only when the departure time condition is satisfied.
+	if(  schedule->get_current_entry().get_wait_for_time()  &&  schedule->get_current_entry().is_load_before_departure()  ) {
+		loading_needed &= (scheduled_departure_time!=0  &&  is_first_ticks_bigger(welt->get_ticks(), scheduled_departure_time - time));
+	}
 
 	for(unsigned i=0; i<vehicles_loading; i++) {
 		vehicle_t* v = fahr[i];
@@ -3432,7 +3438,7 @@ station_tile_search_ready: ;
 
 		uint16 amount = v->unload_cargo(halt, next_depot  );
 
-		if(  !no_load  &&  !next_depot  &&  v->get_total_cargo() < v->get_cargo_max()  ) {
+		if(  loading_needed  &&  v->get_total_cargo() < v->get_cargo_max()  ) {
 			// load if: unloaded something (might go back) or previous non-filled car requested different cargo type
 			if (amount>0  ||  cargo_type_prev==NULL  ||  !cargo_type_prev->is_interchangeable(v->get_cargo_type())) {
 				// load

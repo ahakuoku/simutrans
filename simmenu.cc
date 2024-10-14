@@ -16,6 +16,7 @@
 #include "simtool.h"
 #include "simtool-dialogs.h"
 #include "simtool-scripted.h"
+#include "simtool-script-generator.h"
 #include "simskin.h"
 #include "simsound.h"
 
@@ -122,6 +123,7 @@ tool_t *create_general_tool(int toolnr)
 		case TOOL_MERGE_STOP:                  tool = new tool_merge_stop_t();          break;
 		case TOOL_EXEC_SCRIPT:                 tool = new tool_exec_script_t();         break;
 		case TOOL_EXEC_TWO_CLICK_SCRIPT:       tool = new tool_exec_two_click_script_t(); break;
+		case TOOL_GENERATE_SCRIPT:             tool = new tool_generate_script_t();     break;
 		default:
 			dbg->error("create_general_tool()","cannot satisfy request for general_tool[%i]!",toolnr);
 			return NULL;
@@ -920,10 +922,10 @@ void toolbar_t::update(player_t *player)
 					hausbauer_t::fill_menu( tool_selector, utype, way, get_sound(c));
 				}
 				else if (char const* const c = strstart(param, "scripts(")) {
-					const char* end = strchr(c, ')');
+					const char* end = strchr(c, '\0');
 					char buf[1000];
 					size_t len = end ? min(lengthof(buf)-1, end-c) : lengthof(buf)-1;
-					tstrncpy(buf, c, len+1);
+					tstrncpy(buf, c, len);
 					script_tool_manager_t::fill_menu(tool_selector, buf, get_sound(c));
 				}
 				else if (param[0] == '-') {

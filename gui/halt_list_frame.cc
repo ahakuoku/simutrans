@@ -12,6 +12,8 @@
 #include "../simhalt.h"
 #include "../simware.h"
 #include "../simfab.h"
+#include "../simline.h"
+#include "../simconvoi.h"
 #include "../unicode.h"
 #include "simwin.h"
 #include "../descriptor/skin_desc.h"
@@ -23,7 +25,7 @@
 #include "../utils/cbuffer_t.h"
 
 
-static bool passes_filter(haltestelle_t const& s); // see below
+static bool passes_filter(haltestelle_t const& s, player_t* pl); // see below
 
 /**
  * Scrolled list of halt_list_stats_ts.
@@ -31,8 +33,12 @@ static bool passes_filter(haltestelle_t const& s); // see below
  */
 class gui_scrolled_halt_list_t : public gui_scrolled_list_t
 {
+private:
+	player_t* player;
+	
 public:
-	gui_scrolled_halt_list_t() :  gui_scrolled_list_t(gui_scrolled_list_t::windowskin, compare) {}
+	gui_scrolled_halt_list_t(player_t* pl) :  gui_scrolled_list_t(gui_scrolled_list_t::windowskin, compare),
+	player(pl) {}
 
 	void sort()
 	{
@@ -40,7 +46,7 @@ public:
 		for(  vector_tpl<gui_component_t*>::iterator iter = item_list.begin();  iter != item_list.end();  ++iter) {
 			halt_list_stats_t *a = dynamic_cast<halt_list_stats_t*>(*iter);
 
-			a->set_visible( passes_filter(*a->get_halt()) );
+			a->set_visible( passes_filter(*a->get_halt(), player) );
 		}
 
 		gui_scrolled_list_t::sort(0);
@@ -152,14 +158,43 @@ static bool passes_filter_type(haltestelle_t const& s)
 }
 
 
-static bool passes_filter_special(haltestelle_t const& s)
+static bool passes_filter_special(haltestelle_t const& s, player_t* player)
 {
-	if (!halt_list_frame_t::get_filter(halt_list_frame_t::spezial_filter)) return true;
+	if (!halt_list_frame_t::get_filter(halt_list_frame_t::spezial_filter)) {
+		return s.get_owner()==player;
+	} 
+	
+	if (s.get_owner()==world()->get_public_player()) {
+		if(!halt_list_frame_t::get_filter(halt_list_frame_t::include_public_filter)) {
+			return false;
+		}
+		// Is there any line or convoy of the player that is registered to this stop?
+		bool found = false;
+		FOR(vector_tpl<linehandle_t>, line, s.registered_lines) {
+			if (line->get_owner()==player) {
+				found = true;
+				break;
+			}
+		}
+		FOR(vector_tpl<convoihandle_t>, cnv, s.registered_convoys) {
+			if (cnv->get_owner()==player) {
+				found = true;
+				break;
+			}
+		}
+		if (!found) {
+			return false;
+		}
+	}
+	else if(s.get_owner()!=player) {
+		// this halt does not belong to the player or the public player.
+		return false;
+	}
 
 	if (halt_list_frame_t::get_filter(halt_list_frame_t::ueberfuellt_filter)) {
 		PIXVAL const color = s.get_status_farbe();
-		if (color == color_idx_to_rgb(COL_RED) || color == color_idx_to_rgb(COL_ORANGE)) {
-			return true; // overcrowded
+		if (!(color == color_idx_to_rgb(COL_RED) || color == color_idx_to_rgb(COL_ORANGE))) {
+			return false; // overcrowded
 		}
 	}
 
@@ -170,7 +205,7 @@ static bool passes_filter_special(haltestelle_t const& s)
 		return true;
 	}
 
-	return false;
+	return true;
 }
 
 
@@ -247,14 +282,17 @@ static bool passes_filter_in(haltestelle_t const& s)
  * Check all filters for one halt.
  * returns true, if it is not filtered away.
  */
-static bool passes_filter(haltestelle_t const& s)
+static bool passes_filter(haltestelle_t const& s, player_t* pl)
 {
 	if (halt_list_frame_t::get_filter(halt_list_frame_t::any_filter)) {
 		if (!passes_filter_name(s))    return false;
 		if (!passes_filter_type(s))    return false;
-		if (!passes_filter_special(s)) return false;
+		if (!passes_filter_special(s, pl)) return false;
 		if (!passes_filter_out(s))     return false;
 		if (!passes_filter_in(s))      return false;
+	}
+	else if (s.get_owner()!=pl) {
+		return false;
 	}
 	return true;
 }
@@ -293,7 +331,7 @@ halt_list_frame_t::halt_list_frame_t(player_t *player) :
 	}
 	end_table();
 
-	scrolly = new_component<gui_scrolled_halt_list_t>();
+	scrolly = new_component<gui_scrolled_halt_list_t>(m_player);
 	scrolly->set_maximize( true );
 
 	fill_list();
@@ -321,9 +359,7 @@ void halt_list_frame_t::fill_list()
 
 	scrolly->clear_elements();
 	FOR(vector_tpl<halthandle_t>, const halt, haltestelle_t::get_alle_haltestellen()) {
-		if(  halt->get_owner() == m_player  ) {
-			scrolly->new_component<halt_list_stats_t>(halt) ;
-		}
+		scrolly->new_component<halt_list_stats_t>(halt) ;
 	}
 	sort_list();
 }

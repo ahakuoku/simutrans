@@ -19,16 +19,16 @@ You should try OTRP because...
 The thread in Simutrans International Forum: https://forum.simutrans.com/index.php?topic=16659.0  
 Twitter hashtag :  [#OTRPatch](https://twitter.com/hashtag/OTRPatch?src=hash)  
 
-As of version 28_1, OTRP is based on Simutrans Standard nightly r9281.
+As of version 30, OTRP is based on Simutrans Standard nightly r9281.
+ [Please refer here](cherry-picked-commits.txt) for the cherry-picked commits.
 
 # Download
-In addition to the executable binary, the ribi-arrow pak is required. Please download it from https://drive.google.com/open?id=0B_rSte9xAhLDanhta1ZsSVcwdzg and put it in your pakset folder.  
+In addition to the executable binary, the ribi-arrow pak is required. Please download it from https://osdn.net/projects/otrp/downloads/76098/RibiArrow.zip/ and put it in your pakset folder.  
 
-You can download the OTRP executable binary from the links below. **(2020 October 25th, updated to ver 28_2.)**  
-windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI64-OTRPv28_2.exe/  
-windows(GDI 32bit): https://osdn.net/projects/otrp/downloads/73846/sim-WinGDI-OTRPv28_2.exe/  
-mac: https://osdn.net/projects/otrp/downloads/73846/sim-mac-OTRPv28_2.zip/  
-Linux: https://osdn.net/projects/otrp/downloads/73846/sim-linux-OTRPv28_2.zip/  
+You can download the OTRP executable binary from the links below. **(2021 August 15th, updated to ver 30.)**  
+windows(GDI 64bit): https://osdn.net/projects/otrp/downloads/75752/sim-WinGDI64-OTRPv30.exe/  
+mac: https://osdn.net/projects/otrp/downloads/75752/sim-mac-OTRPv30.zip/  
+Linux: https://osdn.net/projects/otrp/downloads/75752/sim-linux-OTRPv30.zip/  
 source code: https://github.com/teamhimeh/simutrans/tree/OTRP-distribute  
 
 There is no special makeobj for OTRP. Please use one made for Simutrans Standard.
@@ -99,6 +99,7 @@ OTRP's advanced schedule settings create flexible operational possibilities. Adv
 - **No load**: Select a station on the schedule, then apply this setting to prevent passengers from boarding at this station.
 - **No unload**: Select a station on the schedule, then apply this setting to prevent passengers from exiting or transfering at this station.
 - **Unload All**: Select a station on the schedule, then apply this setting to make all loads once get off at this station.
+- **Load before departure**: Select a station on the schedule, then apply this setting to prevent loading goods before the scheduled departure time comes.
 - **Max speed**: Specifies the maximum speed convoys can travel on this line. Useful for maintaining consistent spacing between convoys when vehicles with differing maximum speeds are used on a line.
 
 ## Convoy coupling
@@ -120,6 +121,45 @@ Specify departure times by adjusting **Spacing cnv/month**, **shift**, and **del
 - **Delay tolerance**: By default, all convoys that miss a departure slot will have to wait for the next scheduled departure slot before leaving. For example, if departure slots were specified at 100 and 200 units, a convoy arriving at the station at 101 units would have to wait 99 units for the next slot before it could depart. The delay tolerance setting creates a window of time after each departure slot, during which convoys can immediately depart even if they have missed their departure slots. This prevents convoys from having to wait for excessive amounts of time for departure slots to open. For example, in a scenario where a departure slot is at 100 units, setting a delay tolerance of 30 means that a convoy could arrive at the station as late as 130 units and still depart without waiting for the next slot.   
 
 Finally, toggling "use same departure time for all stops" applies all departure time settings to all stations listed on the schedule.
+
+## Squirrel API
+
+### I/O Library
+
+From OTRP v29_5，the [I/O library](http://www.squirrel-lang.org/squirreldoc/stdlib/stdiolib.html) of Squirrel Standard Library is enabled. To handle multi-byte characters, the following methods are added to `file` class.
+
+- `file.readstr(n)` ... Read up to n（`integer` ）bytes from the file and return text as `String` .
+- `file.writestr(str)` ... Write `str` (`String`) to the file.
+
+example)
+
+```squirrel
+local myfile = file("myfile.txt","r")
+local txt = myfile.readstr(100)
+print(txt)
+myfile.close()
+  
+myfile = file("out.txt","w")
+myfile.writestr("Welcome to simutrans.")
+myfile.close()  
+```
+
+### gui class
+
+- static void **jump** (coord pos) ... jump to the designated position.
+- static void **close_all_windows** ()
+- static void **take_screenshot** ()
+- static void **set_zoom** (int val) ... set zoom ratio of the view. `val` is between 0 (min zoom) and 9 (max zoom).
+
+## Script Generator
+This is a feature to convert the slopes, ways, wayobjs, signs, and stations in the map to a squirrel script.
+[hm_toolkit](https://www.japanese.simutrans.com/index.php?%A5%B9%A5%AF%A5%EA%A5%D7%A5%C8%B3%AB%C8%AF#q6664af6)is required to use the script.
+
+### How to use
+1. Call general_tool[44]. (Assign an appropriate key to general_tool[44] in menuconf.tab.)
+1. Drag the region for conversion.
+1. The save dialog appears. Enter the file name and save. The extension ".nut" will be added automatically.
+1. The file is output to `simutrans/generated-scripts/`. Use it with your description.tab and hm_toolkit_v1.nut.
 
 ## Other 
 - The income/cost display that appears whenever a convoy arrives at a stop can be turned off in the display settings or by assigning a key to simple_tool[38].
@@ -148,9 +188,7 @@ Most of these are stored in-game.
 	- U-turns at intersections are given a weight of **1**.
 	- **cr** sets the weight given when there is a car stopped on the road. The default value is 20.
 	- When the road is empty, the weight is calculated by multiplying the **speed limit of the road** by *sp**, the product of which is then added to **va**. The default value of va is 100, and the default value of sp is 0.
-	
 ## Other
-- **stop_at_intersection_without_traffic_light**: When this is enabled, road vehicles will stop at all intersections without traffic lights. This is disabled by default.	
 - **advance_to_end** : When this is enabled, trains always advance to the ends of platforms. When false, trains stop at the exact coordinates specified in the schedule as long as the platform is long enough to accomodate the entire convoy. This is the same behavior as in Simutrans Standard, and is enabled by default.
 - **routecost_halt**, **routecost_wait**: These settings determine passenger routing behavior. A cost is assigned to each stop and transfer made along a journey, with passengers choosing journeys with the lowest cost. routecost_halt is the cost of each stop; the default value is 1. routecost_wait is the cost of each transfer, with a default value of 8.
 - **first_come_first_serve** : By changing it, the first passenger who arrives at the station or stop gets on the train first. This is disabled by default.

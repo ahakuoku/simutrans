@@ -1973,6 +1973,7 @@ const char *tool_buy_house_t::work( player_t *player, koord3d pos)
 
 	// since buildings can have more than one tile, we must handle them together
 	gebaeude_t* gb = gr->find<gebaeude_t>();
+	gb = gb->get_first_tile();
 	if(  gb== NULL  ||  !gb->is_city_building()  ||  !player_t::check_owner(gb->get_owner(),player)  ) {
 		return "Das Feld gehoert\neinem anderen Spieler\n";
 	}
@@ -4847,9 +4848,6 @@ DBG_MESSAGE("tool_station_aux()", "building %s on square %d,%d for waytype %x", 
 		const building_desc_t *old_desc = gb->get_tile()->get_desc();
 		if(  old_desc == desc  ) {
 			// already has the same station
-			if(  is_ctrl_pressed()  ) {
-				change_platform_face(gb);
-			}
 			return NULL;
 		}
 		if(  old_desc->get_capacity() >= desc->get_capacity()  &&  !is_ctrl_pressed()  ) {
@@ -4911,20 +4909,6 @@ DBG_MESSAGE("tool_station_aux()", "building %s on square %d,%d for waytype %x", 
 
 	return NULL;
 }
-
-
-bool tool_build_station_t::change_platform_face(gebaeude_t* gb) {
-	const building_desc_t *gb_desc = gb->get_tile()->get_desc();
-	if(  gb_desc->get_all_layouts() < 16  ) {
-		return false;
-	}
-	uint8 layout = gb->get_tile()->get_layout();
-	layout = (layout & (~8)) | (~layout&8); // invert 4th bit (1<<3)
-	const building_tile_desc_t* const new_tile = gb_desc->get_tile(layout, 0, 0);
-	gb->set_tile( new_tile, false );
-	return true;
-}
-
 
 // gives the description and sets the rotation value
 const building_desc_t *tool_build_station_t::get_desc( sint8 &rotation ) const
@@ -5353,7 +5337,7 @@ const char *tool_rotate_building_t::work( player_t *player, koord3d pos )
 			for(k.x=0; k.x<desc->get_x(layout); k.x++) {
 				for(k.y=0; k.y<desc->get_y(layout); k.y++) {
 					grund_t *gr = welt->lookup( gb->get_pos()+k );
-					if(  !gr  ) {
+					if(  !gr  ||  gr->hat_wege()  ) {
 						return "Cannot rotate this building!";
 					}
 					const building_tile_desc_t *tile = desc->get_tile(newlayout, k.x, k.y);
@@ -5365,6 +5349,9 @@ const char *tool_rotate_building_t::work( player_t *player, koord3d pos )
 						return "Cannot rotate this building!";
 					}
 				}
+			}
+			if( fabrik_t *fab=gb->get_fabrik() ) {
+				fab->set_rotate( (fab->get_rotate() + 1) % fab->get_desc()->get_building()->get_all_layouts() );
 			}
 			// ok, we can rotate it
 			for(k.x=0; k.x<desc->get_x(layout); k.x++) {
@@ -8318,6 +8305,12 @@ bool tool_change_traffic_light_t::init( player_t *player )
 	}
 	else if(  ns == 2  ) {
 		rs->set_ticks_offset( (uint8)ticks );
+	}
+	else if(  ns == 4  ) {
+		rs->set_ticks_yellow_ns( (uint8)ticks );
+	}
+	else if(  ns == 3  ) {
+		rs->set_ticks_yellow_ow( (uint8)ticks );
 	}
 	// update the window
 	if(  rs->get_desc()->is_traffic_light()  ) {

@@ -224,22 +224,6 @@ void strasse_t::new_month() {
 	}
 }
 
-ribi_t::ribi strasse_t::get_prior_direction() const {
-	if(  directional_statistics[1][1][0]>directional_statistics[1][1][1]  ) {
-		return ribi_t::northsouth;
-	} else if(  directional_statistics[1][1][0]==directional_statistics[1][1][1]  ) {
-		if(  directional_statistics[0][1][0]>directional_statistics[0][1][1]  ) {
-			return ribi_t::northsouth;
-		} else if(  directional_statistics[0][1][0]<directional_statistics[0][1][1]  ) {
-			return ribi_t::eastwest;
-		} else {
-			return ribi_t::all;
-		}
-	} else {
-		return ribi_t::eastwest;
-	}
-}
-
 uint8 calc_reservation_flag(ribi_t::ribi dir_in, ribi_t::ribi dir_out) {
 	if(  dir_in==ribi_t::north  &&  dir_out==ribi_t::east  ) { return 13; }
 	else if(  dir_in==ribi_t::north  &&  dir_out==ribi_t::south  ) { return 5; }
@@ -363,7 +347,7 @@ FLAGGED_PIXVAL strasse_t::get_outline_colour() const {
 }
 
 image_id strasse_t::get_front_image() const {
-	if(  show_masked_ribi  &&  overtaking_mode<=oneway_mode  ) {
+	if(  skinverwaltung_t::ribi_arrow!=NULL  &&  show_masked_ribi  &&  (!env_t::show_oneway_ribi_only  ||  overtaking_mode<=oneway_mode)  ) {
 		return skinverwaltung_t::ribi_arrow->get_image_id(get_ribi());
 	} else {
 		return weg_t::get_front_image();

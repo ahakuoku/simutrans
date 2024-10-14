@@ -1770,7 +1770,11 @@ sint8 fabrik_t::is_needed(const goods_desc_t *typ) const
 
 bool fabrik_t::is_active_lieferziel( koord k ) const
 {
-	assert( lieferziele.is_contained(k) );
+	//assert( lieferziele.is_contained(k) );
+	if(  !lieferziele.is_contained(k)  ) {
+		dbg->error("fabrik_t::is_active_lieferziel", "pos %s is not a destination.", k.get_str());
+		return false;
+	}
 	return 0 < ( ( 1 << lieferziele.index_of(k) ) & lieferziele_active_last_month );
 }
 

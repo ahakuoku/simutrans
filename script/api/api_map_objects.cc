@@ -25,6 +25,7 @@
 #include "../../obj/leitung2.h"
 #include "../../obj/roadsign.h"
 #include "../../obj/signal.h"
+#include "../../obj/wayobj.h"
 #include "../../player/simplay.h"
 
 // for depot tools
@@ -66,10 +67,10 @@ template<class D> struct access_objs {
 				// object or tile disappeared: clear userpointer
 				sq_setinstanceup(vm, index, NULL);
 			}
-			sq_raise_error(vm, "Object of type %s vanished from (%s).", param<D>::squirrel_type, pos.get_str());
+			sq_raise_error(vm, "Object of type %s vanished from (%s).", param<D*>::squirrel_type(), pos.get_str());
 		}
 		else {
-			sq_raise_error(vm, "Object is not of type %s.", param<D>::squirrel_type);
+			sq_raise_error(vm, "Object is not of type %s.", param<D*>::squirrel_type);
 		}
 		return NULL;
 	}
@@ -182,6 +183,7 @@ getpush_obj_pos(label_t, obj_t::label);
 getpush_obj_pos(weg_t, obj_t::way);
 getpush_obj_pos(leitung_t, obj_t::leitung);
 getpush_obj_pos(field_t, obj_t::field);
+getpush_obj_pos(wayobj_t, obj_t::wayobj);
 
 namespace script_api {
 	// each depot has its own class
@@ -257,6 +259,7 @@ SQInteger script_api::param<obj_t*>::push(HSQUIRRELVM vm, obj_t* const& obj)
 		case_resolve_obj(pumpe_t);
 		case_resolve_obj(senke_t);
 
+		case_resolve_obj(wayobj_t);
 		default:
 			return access_objs<obj_t>::push_with_pos(vm, obj);
 	}
@@ -443,6 +446,7 @@ void export_map_objects(HSQUIRRELVM vm)
 	/**
 	 * Constructor. Implemented by derived classes.
 	 * Fails if no object of precisely the requested type is on the tile.
+	 * If there is more than one object of this type on the tile then it will return the first.
 	 * @param x
 	 * @param y
 	 * @param z
@@ -634,6 +638,12 @@ void export_map_objects(HSQUIRRELVM vm)
 	 * @returns object descriptor.
 	 */
 	register_method(vm, &weg_t::get_desc, "get_desc");
+	/**
+	 * Returns maximal allowed speed on this way.
+	 * Takes limits from crossings, overhead-wires, bridges, etc, into account.
+	 * @returns max speed in kmh.
+	 */
+	register_method(vm, &weg_t::get_max_speed, "get_max_speed");
 	end_class(vm);
 
 
@@ -720,5 +730,15 @@ void export_map_objects(HSQUIRRELVM vm)
 	 * @see factory_x::get_field_count, factory_x::get_min_field_count
 	 */
 	register_method(vm, &field_t::get_factory, "get_factory");
+	end_class(vm);
+
+	/**
+	 * Way-objects: overhead-wires, fences, etc. Only one such object can exist on a tile.
+	 */
+	begin_obj_class<wayobj_t>(vm, "wayobj_x", "map_object_x");
+	/**
+	 * @returns object descriptor.
+	 */
+	register_method(vm, &wayobj_t::get_desc, "get_desc");
 	end_class(vm);
 }

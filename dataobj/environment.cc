@@ -175,6 +175,8 @@ bool  env_t::commandline_snapshot = false;
 koord3d env_t::commandline_snapshot_world_position = koord3d(0, 0, 0);
 sint8   env_t::commandline_snapshot_zoom_factor = 3; // ZOOM_NEUTRAL (3)
 
+bool env_t::show_oneway_ribi_only;
+
 // Define default settings.
 void env_t::init()
 {
@@ -303,6 +305,7 @@ void env_t::init()
 	show_money_message = 0;
 	
 	sprintf(otrp_statistics_log, "");
+	show_oneway_ribi_only = false;
 }
 
 
@@ -527,6 +530,10 @@ void env_t::rdwr(loadsave_t *file)
 	
 	if (file->get_OTRP_version()>=25) {
 		file->rdwr_str(otrp_statistics_log, PATH_MAX);
+	}
+	
+	if (file->get_OTRP_version()>=29) {
+		file->rdwr_bool(show_oneway_ribi_only);
 	}
 
 	// server settings are not saved, since they are server specific

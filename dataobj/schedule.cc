@@ -540,6 +540,10 @@ void construct_schedule_entry_attributes(cbuffer_t& buf, schedule_entry_t const&
 		str[cnt] = 'A';
 		cnt++;
 	}
+	if(  flag&schedule_entry_t::WAIT_FOR_TIME  &&  flag&schedule_entry_t::LOAD_BEFORE_DEP  ) {
+		str[cnt] = 'B';
+		cnt++;
+	}
 	// there are at least one attributes.
 	if(  cnt>1  ) {
 		str[cnt] = ']';

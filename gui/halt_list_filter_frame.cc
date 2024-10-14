@@ -26,7 +26,8 @@ const char *halt_list_filter_frame_t::filter_buttons_text[FILTER_BUTTONS] = {
 	"hlf_chk_narrowgaugestop",
 	"hlf_chk_spezial_filter",
 	"hlf_chk_overflow",
-	"hlf_chk_keine_verb"
+	"hlf_chk_keine_verb",
+	"hlf_chk_include_public"
 };
 
 halt_list_frame_t::filter_flag_t halt_list_filter_frame_t::filter_buttons_types[FILTER_BUTTONS] = {
@@ -45,7 +46,8 @@ halt_list_frame_t::filter_flag_t halt_list_filter_frame_t::filter_buttons_types[
 	halt_list_frame_t::narrowgaugestop_filter,
 	halt_list_frame_t::spezial_filter,
 	halt_list_frame_t::ueberfuellt_filter,
-	halt_list_frame_t::ohneverb_filter
+	halt_list_frame_t::ohneverb_filter,
+	halt_list_frame_t::include_public_filter
 };
 
 

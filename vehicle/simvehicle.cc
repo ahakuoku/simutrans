@@ -2386,39 +2386,6 @@ bool road_vehicle_t::can_enter_tile(const grund_t *gr, sint32 &restart_speed, ui
 		const bool drives_on_left = welt->get_settings().is_drive_left();
 		bool int_block = (rs  &&  rs->get_desc()->is_traffic_light())  ||  (ribi_t::is_threeway(str->get_ribi_unmasked())  &&  (((drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction)) & str->get_ribi_unmasked())  ||  curr_90direction != next_90direction));
 
-		// do we have to stop before entering the intersection?
-		// we consider prior direction of the intersection.
-		if(  !welt->get_settings().get_stop_at_intersection_without_traffic_light()  ) {
-			// stopping is not requested by the setting.
-		} else if(  !ribi_t::is_threeway(str->get_ribi_unmasked())  ) {
-			// this tile is not an intersection.
-		} else if(  (curr_90direction&str->get_prior_direction())!=0  ) {
-			// we are in the prior directions.
-		} else if(  (drives_on_left ? ribi_t::rotate90l(curr_90direction) : ribi_t::rotate90(curr_90direction))==next_90direction  ) {
-			// we make an inside turn. This tile might be a merging point, so we don't stop.
-		} else if(  last_stop_for_intersection==gr->get_pos()  ) {
-			// we already stopped for this intersection.
-		} else if(  ribi_t::is_single(str->get_ribi())  ) {
-			// this tile is a merging point. we don't stop.
-		} else if(  (curr_90direction!=next_90direction)  &&  (ribi_t::backward(next_90direction)&str->get_ribi())==0  ) {
-			// we make an outside turn, but crossing street is oneway.
-		} else {
-			// check for traffic light. If there is a traffic light, we don't have to stop here.
-			bool traffic_light = false;
-			if(  str->has_sign()  ) {
-				rs = gr->find<roadsign_t>();
-				if(  rs  &&  rs->get_desc()->is_traffic_light()  ) {
-					traffic_light = true;
-				}
-			}
-			// crossing traffic has priority. we have to stop.
-			if(  !traffic_light  &&  cnv->get_akt_speed()>kmh_to_speed(5)  ) {
-				restart_speed = 0;
-				last_stop_for_intersection = gr->get_pos();
-				return false;
-			}
-		}
-
 		//If this convoi is overtaking, the convoi must avoid a head-on crash.
 		if(  cnv->is_overtaking()  &&  current_str->get_overtaking_mode()!=inverted_mode  ){
 			while(  test_index < route_index + 2u && test_index < r.get_count()  ){
@@ -3404,7 +3371,7 @@ bool rail_vehicle_t::is_target(const grund_t *gr,const grund_t *prev_gr) const
 				if(  !gr->get_neighbour(to,get_waytype(),ribi)  ||  !(to->get_halt()==target_halt)  ||  (to->get_weg(get_waytype())->get_ribi_maske() & ribi_type(dir))!=0  ) {
 					// end of stop: Is it long enough?
 					// end of stop could be also signal!
-					uint16 tiles = cnv->get_tile_length();
+					uint16 tiles = cnv->get_tile_length(true);
 					while(  tiles>1  ) {
 						if(  gr->get_weg(get_waytype())->get_ribi_maske() & ribi  ||  !gr->get_neighbour(to,get_waytype(),ribi_t::backward(ribi))  ||  !(to->get_halt()==target_halt)  ) {
 							return false;

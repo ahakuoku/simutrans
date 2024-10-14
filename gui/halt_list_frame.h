@@ -37,7 +37,8 @@ public:
 		monorailstop_filter=8192,
 		maglevstop_filter=16384,
 		narrowgaugestop_filter=32768,
-		tramstop_filter=65536
+		tramstop_filter=65536,
+		include_public_filter=(1<<17),
 	};
 
 private:

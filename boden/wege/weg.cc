@@ -251,16 +251,6 @@ void weg_t::info(cbuffer_t & buf) const
 		if(  str->get_citycar_no_entry()  ) {
 			buf.printf("%s\n", translator::translate("Citycars are excluded."));
 		}
-
-		if(  ribi_t::is_threeway(get_ribi_unmasked())  &&  welt->get_settings().get_stop_at_intersection_without_traffic_light()  ) {
-			if(  str->get_prior_direction()==ribi_t::northsouth  ) {
-				buf.printf("%s: %s\n", translator::translate("Prior"), translator::translate("northsouth"));
-			} else if(  str->get_prior_direction()==ribi_t::eastwest  ) {
-				buf.printf("%s: %s\n", translator::translate("Prior"), translator::translate("eastwest"));
-			} else {
-				buf.printf("%s: %s\n", translator::translate("Prior"), translator::translate("all"));
-			}
-		}
 	}
 
 	if(has_sign()) {

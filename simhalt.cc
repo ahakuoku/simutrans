@@ -1180,8 +1180,8 @@ sint32 haltestelle_t::rebuild_connections()
 	bool lines = true;
 	uint32 current_index = 0;
 	// Is unload_all applied for this halt?
-	// HACK: When unload_all_applied is true, is_transfer is true regardless of connections.
-	bool unload_all_applied = false;
+	// HACK: When unload_all, no_load or no_unload is applied, is_transfer is true regardless of connections.
+	bool force_transfer_search = false;
 	while(  lines  ||  current_index < registered_convoys.get_count()  ) {
 
 		// Now, collect the "schedule", "owner" and "add_catg_index" from line resp. convoy.
@@ -1219,6 +1219,11 @@ sint32 haltestelle_t::rebuild_connections()
 		while(  start_index < schedule->get_count()  &&  get_halt( schedule->entries[start_index].pos, owner ) != self  ) {
 			++start_index;
 		}
+		if(  start_index==schedule->get_count()  ) {
+			// self halt entry was not found.
+			dbg->error("haltestelle_t::rebuild_connections()", "The self halt was not found for the schedule at %s. Type: %d, number of halts: %d", get_name(), schedule->get_type(), schedule->get_count());
+			continue;
+		}
 		++start_index;	// the next index after self halt; it's okay to be out-of-range
 
 		// determine goods category indices supported by this halt
@@ -1244,7 +1249,7 @@ sint32 haltestelle_t::rebuild_connections()
 		uint16 aggregate_weight = WEIGHT_WAIT;
 		const schedule_entry_t start_entry = schedule->entries[start_index-1];
 		bool no_load_section = start_entry.is_no_load();
-		unload_all_applied |= start_entry.is_unload_all();
+		force_transfer_search |= (start_entry.is_unload_all()  ||  start_entry.is_no_load()  ||  start_entry.is_no_unload());
 		for(  uint8 j=0;  j<schedule->get_count();  ++j  ) {
 
 			const schedule_entry_t current_entry = schedule->entries[(start_index+j)%schedule->get_count()];
@@ -1264,7 +1269,7 @@ sint32 haltestelle_t::rebuild_connections()
 				}
 				// reset aggregate weight and no_load_section
 				aggregate_weight = WEIGHT_WAIT;
-			 	unload_all_applied |= current_entry.is_unload_all();
+			 	force_transfer_search |= (current_entry.is_unload_all()  ||  current_entry.is_no_load()  ||  current_entry.is_no_unload());
 				no_load_section = current_entry.is_no_load();
 				no_unload_halts.clear();
 				continue;
@@ -1310,7 +1315,7 @@ sint32 haltestelle_t::rebuild_connections()
 		// one schedule reaches all consecutive halts -> this is not transfer halt
 		all_links[i].is_transfer = !consecutive_halts[i].empty()  &&
 			(consecutive_halts[i].get_count() != max_consecutive_halts_schedule[i]  ||
-			unload_all_applied);
+			force_transfer_search);
 	}
 	return connections_searched;
 }
@@ -2289,15 +2294,7 @@ void haltestelle_t::add_ware_to_halt(ware_t ware)
 		warray = new slist_tpl<ware_t>();
 		cargo[ware.get_desc()->get_catg_index()] = warray;
 	}
-	// the ware will be put into the first entry with menge==0
 	resort_freight_info = true;
-	FOR(slist_tpl<ware_t>, & i, *warray) {
-		if (i.menge == 0) {
-			i = ware;
-			return;
-		}
-	}
-	// here, if no free entries found
 	warray->append(ware);
 }
 
@@ -2491,6 +2488,7 @@ void haltestelle_t::change_owner( player_t *player, bool halt_only )
 	owner = player;
 	rebuild_connections();
 	rebuild_linked_connections();
+	rebuild_connected_components();
 
 	// tell the world of it ...
 	if(  player == welt->get_public_player()  &&  env_t::networkmode  ) {
@@ -2621,6 +2619,7 @@ void haltestelle_t::merge_halt( halthandle_t halt_merged )
 	recalc_station_type();
 	rebuild_connections();
 	rebuild_linked_connections();
+	rebuild_connected_components();
 }
 // [mod : shingoushori] mod : changes this to a private transfer exchange stop 3/3
 // changes this to a private transfer exchange stop

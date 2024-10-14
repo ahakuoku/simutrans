@@ -1,0 +1,44 @@
+revision  URL
+9490
+9498  https://github.com/aburch/simutrans/commit/f3a24143e5efa86f70fe3e402db66b955524b558
+9506  https://github.com/aburch/simutrans/commit/afa34316f08de7c27e8405d83d2dc48865c6d63c
+9514  https://github.com/aburch/simutrans/commit/809ffc7b26475d502d60ed82c1e656def0b20850
+9517  https://github.com/aburch/simutrans/commit/04538d80425aff6eb21230eb64dfb457265089ac
+9518  https://github.com/aburch/simutrans/commit/40f23d7884fe26627f2e1b74d6e760082c3ecb97
+9520  https://github.com/aburch/simutrans/commit/60f18a38768475c9bf81bca4c0753c6ac4528e8c
+9521
+9528
+||
+9531
+9534
+||
+9537
+9539
+||
+9543
+9546
+9552
+9554
+9555
+9568
+9578
+9579
+9651
+9709
+9758
+9791
+9887
+9950
+9951
+9952
+9965
+9966
+9981
+9983
+10012
+10036
+10075
+10077
+10078
+10102
+10128

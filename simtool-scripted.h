@@ -34,12 +34,16 @@ struct scripted_tool_info_t {
 	const skin_desc_t* desc; ///< skin object used for cursor (0), icon (1), and maybe marker (2)
 	bool restart;            ///< true, if script vm has to be restarted after work()
 	bool is_one_click;       ///< true, if tool is one-click (otherwise needs two clicks/coordinates to work)
+	koord cursor_area;       ///< size of cursor defined in tool_t
+	koord cursor_offset;     ///< cursor offset defined in tool_t
 	/// sets default values
 	scripted_tool_info_t()
 	{
 		desc = NULL;
 		restart = true;
 		is_one_click = true;
+		cursor_area = koord(1,1);
+		cursor_offset = koord(0,0);
 	}
 };
 
@@ -50,8 +54,6 @@ private:
 
 	void load_script(const char* path, player_t* player);
 protected:
-
-	void init_images(tool_t *tool) const;
 	/// the vm, will be initialized in init()
 	script_vm_t *script;
 	/// starts vm, sets our_player, returns true if successful
@@ -63,6 +65,8 @@ protected:
 	const char* call_function(script_vm_t::call_type_t ct, const char* function, player_t* player, R& ret, A1 arg1);
 	template<class R, class A1, class A2>
 	const char* call_function(script_vm_t::call_type_t ct, const char* function, player_t* player, R& ret, A1 arg1, A2 arg2);
+	template<class R, class A1, class A2, class A3>
+	const char* call_function(script_vm_t::call_type_t ct, const char* function, player_t* player, R& ret, A1 arg1, A2 arg2, A3 arg3);
 public:
 	exec_script_base_t(const scripted_tool_info_t *i) : info(i), script(NULL) {}
 	virtual ~exec_script_base_t();
@@ -70,12 +74,16 @@ public:
 	void set_info(const scripted_tool_info_t *i);
 	const scripted_tool_info_t* get_info() const { return info; };
 
+	void init_images(tool_t *tool) const;
+
 	const char* get_menu_arg() const { return info ? info->menu_arg.c_str() : ""; }
 
 	/// has to be called if the tool is active, to resume script if a work-command gets suspended
 	void step(player_t* player);
 
 	const char *get_tooltip(const player_t *) const { return info ? info->tooltip.c_str() : ""; }
+	koord get_cursor_area() const { return info->cursor_area; }
+	koord get_cursor_offset() const { return info->cursor_offset; }
 };
 
 
@@ -93,7 +101,7 @@ public:
 
 	const char *work(player_t* player, koord3d pos) OVERRIDE;
 
-	using exec_script_base_t::get_tooltip;
+	const char *get_tooltip(const player_t *pl) const OVERRIDE { return exec_script_base_t::get_tooltip(pl); }
 };
 
 class tool_exec_two_click_script_t : public two_click_tool_t, public exec_script_base_t {
@@ -125,7 +133,7 @@ public:
 
 	virtual image_id get_marker_image() const OVERRIDE;
 
-	using exec_script_base_t::get_tooltip;
+	const char *get_tooltip(const player_t *pl) const OVERRIDE { return exec_script_base_t::get_tooltip(pl); }
 };
 
 #endif

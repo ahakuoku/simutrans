@@ -550,7 +550,7 @@ public:
 	/**
 	* Called if a vehicle enters a depot
 	*/
-	void betrete_depot(depot_t *dep);
+	void betrete_depot(depot_t *dep, bool is_loading = false);
 
 	/**
 	* Return the internal name of the convois

@@ -144,6 +144,7 @@ script_vm_t::script_vm_t(const char* include_path_, const char* log_name)
 	sqstd_register_stringlib(vm);
 	sqstd_register_mathlib(vm);
 	sqstd_register_systemlib(vm);
+	sqstd_register_iolib(vm);
 	sq_pop(vm, 1);
 	// export include command
 	export_include(vm, include_path);
@@ -192,6 +193,8 @@ const char* script_vm_t::eval_string(const char* squirrel_string)
 		return NULL;
 	}
 	HSQUIRRELVM &job = thread;
+	// log string
+	printfunc(job, "String to compile:\n%s\n<<<\n", squirrel_string);
 	// compile string
 	if (!SQ_SUCCEEDED(sq_compilebuffer(job, squirrel_string, strlen(squirrel_string), "userdefinedstringmethod", true))) {
 		set_error("Error compiling string buffer");
