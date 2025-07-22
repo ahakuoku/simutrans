@@ -272,8 +272,8 @@ private:
 	/*
 	 * caches the running costs
 	 */
-	sint32 sum_running_costs;
-	sint32 sum_fixed_costs;
+	sint64 sum_running_costs;
+	sint64 sum_fixed_costs;
 
 	/**
 	* Overall performance.
@@ -516,7 +516,6 @@ private:
 	void push_convoy_stopping_time();
 
 	void reverse_vehicles_at_halt_if_needed();
-	void reverse_vehicles_to_go_to_depot();
 	void reverse_vehicles();
 
 	// Reverse the order of the coupling/coupled convois
@@ -527,6 +526,7 @@ private:
 
 public:
 	bool is_reversed() const { return reversed; }
+	void set_reversed(bool yesno) { reversed = yesno; }
 	// Reorder the vehicle array
 	// Can be executed even with a vehicle array that does not belong to convoy for UI
 	
@@ -925,7 +925,13 @@ public:
 	 * Has to be called synchronously on all clients in networkmode!
 	 * @returns success message
 	 */
-	const char* send_to_depot(bool local);
+	const char* send_to_depot(bool local);	
+	/**
+	* Sends convoi to nearest depot immediately.
+	* Has to be called synchronously on all clients in networkmode!
+	* @returns success message
+	*/
+	const char* send_to_depot_immediately(bool local);
 
 	/**
 	 * this give the index of the next signal or the end of the route
