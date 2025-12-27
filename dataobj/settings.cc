@@ -108,6 +108,7 @@ settings_t::settings_t() :
 
 	// passenger manipulation factor (=16 about old value)
 	passenger_factor = 16;
+	passenger_factor_float = 0;
 
 	// town growth factors
 	passenger_multiplier = 40;
@@ -156,6 +157,11 @@ settings_t::settings_t() :
 	crossconnect_factories=false;
 	crossconnect_factor=33;
 #endif
+
+	// Factory retirement settings
+	factory_max_years_obsolete = 30;
+	close_old_factory = false;
+	
 
 	/* minimum spacing between two factories */
 	min_factory_spacing = 6;
@@ -563,6 +569,11 @@ void settings_t::rdwr(loadsave_t *file)
 			file->rdwr_short(origin_y );
 
 			file->rdwr_long(passenger_factor );
+			if(  file->get_OTRP_version() > 46  ) {
+				file->rdwr_short(passenger_factor_float);
+			} else {
+				passenger_factor_float = 0;
+			}
 
 			// town grow stuff
 			if(file->is_version_atleast(102, 2)) {
@@ -974,6 +985,10 @@ void settings_t::rdwr(loadsave_t *file)
 				file->rdwr_bool(is_time_based_routing_enabled[i]);
 			}
 		}
+		if(  file->get_OTRP_version() >= 48  ) {
+			file->rdwr_bool(close_old_factory);
+			file->rdwr_short(factory_max_years_obsolete);
+		}
 		if(  file->is_version_atleast(122, 1)  ) {
 			file->rdwr_enum(climate_generator);
 			file->rdwr_byte( wind_direction );
@@ -1319,6 +1334,7 @@ void settings_t::parse_simuconf( tabfile_t& simuconf, sint16& disp_width, sint16
 	minimum_city_distance                = contents.get_int_clamped( "minimum_city_distance",        minimum_city_distance,                1, INT_MAX );
 	industry_increase                    = contents.get_int_clamped( "industry_increase_every",      industry_increase,                    0, INT_MAX );
 	passenger_factor                     = contents.get_int_clamped( "passenger_factor",             passenger_factor,                     0, INT_MAX ); /* this can manipulate the passenger generation */
+	passenger_factor_float               = contents.get_int_clamped( "passenger_factor_float",       passenger_factor_float,               0, max_passenger_factor_float()-1 );
 	factory_worker_percentage            = contents.get_int_clamped( "factory_worker_percentage",    factory_worker_percentage,            0, 100 );
 	factory_worker_radius                = contents.get_int_clamped( "factory_worker_radius",        factory_worker_radius,                0, 0x7FFF );
 	factory_worker_minimum_towns         = contents.get_int_clamped( "factory_worker_minimum_towns", factory_worker_minimum_towns,         0, 0x7FFF );
@@ -1540,6 +1556,9 @@ void settings_t::parse_simuconf( tabfile_t& simuconf, sint16& disp_width, sint16
 	electric_promille              = contents.get_int_clamped("electric_promille",                 electric_promille,              0, 1000 );
 
 	crossconnect_factories         = contents.get_int("crossconnect_factories", crossconnect_factories ) != 0;
+
+	close_old_factory			   = contents.get_int("close_old_factory", close_old_factory) != 0;
+	factory_max_years_obsolete = contents.get_int("max_years_obsolete", factory_max_years_obsolete);
 
 	env_t::just_in_time = contents.get_int_clamped("just_in_time", env_t::just_in_time, 0, 2);
 	just_in_time = env_t::just_in_time;

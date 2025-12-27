@@ -202,6 +202,8 @@ private:
 	sint16 origin_x, origin_y;
 
 	sint32 passenger_factor;
+	// passenger factor float value(passenger factor = float/100)
+	uint16 passenger_factor_float;
 
 	sint16 min_factory_spacing;
 	sint16 max_factory_spacing;
@@ -215,6 +217,10 @@ private:
 
 	/* crossconnect all factories (like OTTD and similar games) */
 	sint16 crossconnect_factor;
+
+	/* close old factory randomly (like extended)*/
+	bool close_old_factory;
+	uint16 factory_max_years_obsolete;
 
 	/**
 	* Generate random pedestrians in the cities?
@@ -533,6 +539,8 @@ public:
 	sint16 get_max_factory_spacing_percent() const { return max_factory_spacing_percentage; }
 	sint16 get_crossconnect_factor() const { return crossconnect_factor; }
 	bool is_crossconnect_factories() const { return crossconnect_factories; }
+	bool is_close_old_factory() const { return close_old_factory; }
+	uint16 get_factory_max_years_obsolete() const { return factory_max_years_obsolete; }
 
 	bool get_numbered_stations() const { return numbered_stations; }
 
@@ -581,6 +589,8 @@ public:
 	bool get_with_private_paks() const { return with_private_paks; }
 
 	sint32 get_passenger_factor() const { return passenger_factor; }
+	uint16 get_passenger_factor_float() const { return passenger_factor_float; }
+	uint16 max_passenger_factor_float() const { return (uint16)100; }
 
 	// town growth stuff
 	sint32 get_passenger_multiplier() const { return passenger_multiplier; }

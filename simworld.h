@@ -721,6 +721,11 @@ public:
 	 */
 	void announce_server(server_announce_type_t status);
 
+	/**
+	 * close factory because too old
+	 */
+	vector_tpl<fabrik_t*> closed_factories_this_month;
+
 	/// cache the current maximum and minimum height on the map
 	sint8 max_height, min_height;
 
@@ -1771,7 +1776,7 @@ public:
 	 * Creates a map from a heightfield.
 	 * @param sets game settings.
 	 */
-	void load_heightfield(settings_t *sets);
+	void load_heightfield(settings_t *sets, bool is_new_map);
 
 	/**
 	 * Stops simulation and optionally closes the game.

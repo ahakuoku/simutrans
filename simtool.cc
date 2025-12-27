@@ -12,6 +12,7 @@
 #include "simcity.h"
 #include "simmesg.h"
 #include "simconvoi.h"
+
 #include "gui/simwin.h"
 #include "display/viewport.h"
 
@@ -57,6 +58,7 @@
 #include "gui/messagebox.h"
 #include "gui/simple_number_input.h"
 #include "gui/signal_info.h"
+#include "gui/end_of_choose_info.h"
 
 #include "obj/zeiger.h"
 #include "obj/bruecke.h"
@@ -652,6 +654,11 @@ DBG_MESSAGE("tool_remover()",  "removing tunnel  from %d,%d,%d",gr->get_pos().x,
 			}
 		}
 		else {
+			fabrik_t* const fab=gb->get_fabrik();
+			if(  fab && fab->is_no_close_factory()  ) {
+				msg = "This factory cannot be destroyed!";
+				return false;
+			}
 			// townhall is also removed during town removal
 			hausbauer_t::remove( player, gb );
 		}
@@ -2749,7 +2756,7 @@ uint8 tool_build_way_t::is_valid_pos( player_t *player, const koord3d &pos, cons
 	grund_t *gr=welt->lookup(pos);
 	if(  gr  &&  slope_t::is_way(gr->get_weg_hang())  ) {
 		// ignore tunnel tiles (except road tunnel for tram track building ..)
-		if(  gr->get_typ() == grund_t::tunnelboden  &&  !gr->ist_karten_boden()  && !( desc->is_tram()  && ( gr->hat_weg(road_wt) || gr->hat_weg(monorail_wt) || gr->hat_weg(maglev_wt) || gr->hat_weg(narrowgauge_wt) ) )  ) {
+		if(  gr->get_typ() == grund_t::tunnelboden  &&  !gr->ist_karten_boden()  && !( desc->is_tram()  && ( gr->hat_weg(track_wt) || gr->hat_weg(road_wt) || gr->hat_weg(monorail_wt) || gr->hat_weg(maglev_wt) || gr->hat_weg(narrowgauge_wt) ) )  ) {
 			return 0;
 		}
 		bool const elevated = desc->get_styp() == type_elevated  &&  desc->get_wtyp() != air_wt;
@@ -2808,8 +2815,9 @@ tool_build_way_t* get_build_way_tool_from_toolbar(const way_desc_t* desc) {
 	return NULL;
 }
 
-void tool_build_way_t::calc_route( way_builder_t &bauigel, const koord3d &start, const koord3d &end )
+bool tool_build_way_t::calc_route( way_builder_t &bauigel, const koord3d &start, const koord3d &end )
 {
+	bool route_reversed = false;
 	// recalc type of construction
 	way_builder_t::bautyp_t bautyp = (way_builder_t::bautyp_t)desc->get_wtyp();
 	if(desc->is_tram()) {
@@ -2853,9 +2861,10 @@ void tool_build_way_t::calc_route( way_builder_t &bauigel, const koord3d &start,
 		bauigel.calc_straight_route(start,my_end);
 	}
 	else {
-		bauigel.calc_route(start,my_end);
+		route_reversed = bauigel.calc_route(start,my_end);
 	}
 	DBG_MESSAGE("tool_build_way_t()", "builder found route with %d squares length.", bauigel.get_count());
+	return route_reversed;
 }
 
 const char *tool_build_way_t::do_work( player_t *player, const koord3d &start, const koord3d &end )
@@ -2920,7 +2929,7 @@ void tool_build_way_t::rdwr_custom_data(memory_rw_t *packet)
 void tool_build_way_t::mark_tiles(  player_t *player, const koord3d &start, const koord3d &end )
 {
 	way_builder_t bauigel(player);
-	calc_route( bauigel, start, end );
+	bool route_reversed = calc_route( bauigel, start, end );
 	bool keep_city_roads = is_shift_pressed()  &&  desc->get_styp() == type_flat  &&  desc->get_wtyp() == road_wt;
 
 	uint8 hf = height_offset;
@@ -2965,6 +2974,32 @@ void tool_build_way_t::mark_tiles(  player_t *player, const koord3d &start, cons
 			}
 			else {
 				way->set_image( desc->get_image_id(zeige,0) );
+			}
+			if(  desc->get_wtyp()==road_wt && skinverwaltung_t::ribi_arrow!=NULL  ) {
+				if(overtaking_mode<=oneway_mode) {
+					ribi_t::ribi oneway_ribi = (!route_reversed? j!=bauigel.get_count()-1: j!=0)? ribi_type(bauigel.get_route()[(!route_reversed)? j+1: j-1]-bauigel.get_route()[j]): ribi_t::none;
+					if( weg_t* road=gr->get_weg(road_wt) ) {
+						dynamic_cast<strasse_t*>(road)->set_way_building(true);
+						if(  !route_reversed? j==0: j==bauigel.get_count()-1  ) {
+							if( ribi_t::is_single(road->get_ribi_unmasked()) ) {
+								// oneway_ribi already updated
+							}
+							else if( ribi_t::is_twoway(road->get_ribi_unmasked()) ) {
+								oneway_ribi=(oneway_ribi&road->get_ribi_unmasked())>0?oneway_ribi:oneway_ribi|road->get_ribi();
+							}
+							else {
+								oneway_ribi |= road->get_ribi();
+							}
+						} else {
+							ribi_t::ribi mask_ribi = ribi_type(bauigel.get_route()[!route_reversed? j-1: j+1]-bauigel.get_route()[j]);
+							oneway_ribi |= (road->get_ribi() & ~mask_ribi);
+						}
+					}
+					way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(oneway_ribi));
+				}
+				else if(!env_t::show_oneway_ribi_only){
+					way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(zeige));
+				}
 			}
 			gr->obj_add( way );
 			way->set_yoff(-gr->get_weg_yoff() );
@@ -3193,9 +3228,15 @@ void tool_build_bridge_t::mark_tiles(  player_t *player, const koord3d &start, c
 		grund_t *kb = welt->lookup_kartenboden(pos.get_2d());
 		sint16 height = pos.z - kb->get_pos().z;
 		way->set_image(desc->get_background(desc->get_straight(ribi_mark,height-slope_t::max_diff(kb->get_grund_hang())),0));
-		way->set_foreground_image(desc->get_foreground(desc->get_straight(ribi_mark,height-slope_t::max_diff(kb->get_grund_hang())), 0));
 		marked.insert( way );
 		way->mark_image_dirty( way->get_image(), 0 );
+		if (desc->get_wtyp() == road_wt  &&  skinverwaltung_t::ribi_arrow  ) {
+			if(   get_overtaking_mode() <= oneway_mode  ) {
+				way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(ribi_mark));
+			} else if(  !env_t::show_oneway_ribi_only  ) {
+				way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(ribi_mark+ribi_t::backward(ribi_mark)));
+			}
+		}
 		pos = pos + zv;
 	}
 	costs += desc->get_price() * koord_distance(start, pos);
@@ -3585,6 +3626,32 @@ void tool_build_tunnel_t::mark_tiles(  player_t *player, const koord3d &start, c
 			}
 			else {
 				way->set_image( wb->get_image_id(zeige,0) );
+			}
+			if(  desc->get_wtyp()==road_wt && skinverwaltung_t::ribi_arrow!=NULL  ) {
+				if(overtaking_mode<=oneway_mode) {
+					ribi_t::ribi oneway_ribi = (j!=bauigel.get_count()-1)? ribi_type(bauigel.get_route()[j+1]-bauigel.get_route()[j]): ribi_t::none;
+					if( weg_t* road=gr->get_weg(road_wt) ) {
+						dynamic_cast<strasse_t*>(road)->set_way_building(true);
+						if(  j==0  ) {
+							if( ribi_t::is_single(road->get_ribi_unmasked()) ) {
+								// oneway_ribi already updated
+							}
+							else if( ribi_t::is_twoway(road->get_ribi_unmasked()) ) {
+								oneway_ribi=(oneway_ribi&road->get_ribi_unmasked())>0?oneway_ribi:oneway_ribi|road->get_ribi();
+							}
+							else {
+								oneway_ribi |= road->get_ribi();
+							}
+						} else {
+							ribi_t::ribi mask_ribi = ribi_type(bauigel.get_route()[j-1]-bauigel.get_route()[j]);
+							oneway_ribi |= (road->get_ribi() & ~mask_ribi);
+						}
+					}
+					way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(oneway_ribi));
+				}
+				else if(!env_t::show_oneway_ribi_only){
+					way->set_foreground_image(skinverwaltung_t::ribi_arrow->get_image_id(zeige));
+				}
 			}
 			gr->obj_add( way );
 			marked.insert( way );
@@ -6356,12 +6423,32 @@ void tool_build_house_t::rdwr_custom_data(memory_rw_t *packet)
 				buildings.append(tile->get_desc());
 			}
 		}
-	} else {
-		// writing
+	} else if(env_t::server){
 		for(  uint32 i=0;  i<count;  i++  ) {
 			ps = plainstring(buildings[i]->get_name());
 			packet->rdwr_str(ps);
 		}
+	} else {
+		// writing
+        if (count > 0) {
+			dbg->message("tool_build_house_t::rdwr_custom_data()","randbuildingset");
+            uint32 i = 0;
+            bool* used_flags = new bool[count];
+            for( uint32 j = 0; j < count; j++) {
+                used_flags[j] = false;
+            }
+            while (i < count) {
+                uint32 rand_index = sim_async_rand(count);
+                if(used_flags[rand_index]){
+					continue;
+				}
+                ps = plainstring(buildings[rand_index]->get_name());
+                packet->rdwr_str(ps);
+				used_flags[rand_index] = true;
+                i++;
+            }
+			delete[] used_flags;
+        }
 	}
 }
 
@@ -7055,31 +7142,60 @@ const char *tool_stop_mover_t::do_work( player_t *player, const koord3d &last_po
 			}
 			else if(!catch_all_halt) {
 				// builds a coordinate list
-				if(wt==road_wt) {
+				if(is_ctrl_pressed()) {
 					old_platform.append(last_pos);
 				}
 				else {
 					// all connected tiles for start pos
-					uint8 ribi = welt->lookup(last_pos)->get_weg_ribi_unmasked(wt);
-					koord delta = ribi_t::is_straight_ns(ribi) ? koord(0,1) : koord(1,0);
+					ribi_t::ribi ribi = welt->lookup(last_pos)->get_weg_ribi_unmasked(wt);
+					ribi_t::ribi dir = 0;
 					koord3d start_pos=last_pos;
-					while(ribi&12) {
-						koord3d test_pos = start_pos+delta;
-						grund_t *gr = welt->lookup(test_pos);
-						if(!gr  ||  !gr->is_halt()  ||  (ribi=gr->get_weg_ribi_unmasked(wt))==0) {
+					// move to start position of platform
+					// find the initial direction to search.
+					for(uint8 i=0; i<4; i++) {
+						if(  ribi&ribi_t::nesw[i]  ) {
+							dir = ribi_t::nesw[i];
 							break;
 						}
-						start_pos = test_pos;
+					}
+					if(  dir==0  ) {
+						// no connected way!?
+						old_platform.append(last_pos);
+						break;
+					}
+					grund_t *gr = welt->lookup(start_pos);
+					while(true) {
+						gr->get_neighbour(gr, wt, dir);
+						if(  !gr  ||  !gr->is_halt()  ||  !gr->get_weg(wt)  || (ribi=gr->get_weg_ribi_unmasked(wt))==0  ||  gr->get_pos()==last_pos  ) {
+							// maybe reach last tile
+							break;
+						}
+						const ribi_t::ribi new_dir = ribi & ~(ribi_t::backward(dir));
+						if( new_dir==0 ) {
+							// maybe reach last tile
+							break;
+						}
+						dir = new_dir;
+						start_pos = gr->get_pos();
 					}
 					// now add all of them
-					while(ribi&3) {
-						koord3d test_pos = start_pos-delta;
-						grund_t *gr = welt->lookup(test_pos);
+					dir = ribi_t::backward(dir);
+					gr = welt->lookup(start_pos);
+					const koord3d end_pos = start_pos;
+					while(true) {
 						old_platform.append(start_pos);
-						if(!gr  ||  !gr->is_halt()  ||  (ribi=gr->get_weg_ribi_unmasked(wt))==0) {
+						gr->get_neighbour(gr, wt, dir);
+						if(!gr  ||  !gr->is_halt()  ||  !gr->get_weg(wt)  || (ribi=gr->get_weg_ribi_unmasked(wt))==0  ||  gr->get_pos()==end_pos  ) {
+							// maybe reach last tile
 							break;
 						}
-						start_pos = test_pos;
+						const ribi_t::ribi new_dir = ribi & ~(ribi_t::backward(dir));
+						if( new_dir==0 ) {
+							// maybe reach last tile
+							break;
+						}
+						dir = new_dir;
+						start_pos = gr->get_pos();
 					}
 				}
 			}
@@ -8141,6 +8257,7 @@ bool scenario_check_convoy(karte_t *welt, player_t *player, convoihandle_t cnv, 
  * 'e' : toggle delay recovery
  * 't' : go to next stop
  * 'v' : reversing convoi direction
+ * 'm' : apply max speed of convoy
  */
 bool tool_change_convoi_t::init( player_t *player )
 {
@@ -8341,6 +8458,14 @@ bool tool_change_convoi_t::init( player_t *player )
 		case 'v':
 		{
 			cnv->reverse_vehicles_on_user_request();
+		}
+		break;
+
+		case 'm':
+		{
+			uint16 max_speed_kmh_of_convoi=0;
+			int count=sscanf( p, "%hi", &max_speed_kmh_of_convoi);
+			cnv->set_max_speed_kmh_of_convoi(max_speed_kmh_of_convoi);
 		}
 		break;
 	}
@@ -8643,7 +8768,7 @@ bool tool_change_line_t::init( player_t *player )
  * 'B' : starts all convoys
  * 'c' : copies this convoi
  * 'd' : disassembles convoi
- * 's' : sells convoi
+ * 's' : sells a vehicle
  * 'a' : appends a vehicle (+vehikel_name) uses the oldest
  * 'i' : inserts a vehicle in front (+vehikel_name) uses the oldest
  * 's' : sells a vehikel (+vehikel_name) uses the newest
@@ -8652,6 +8777,8 @@ bool tool_change_line_t::init( player_t *player )
  * 'e' : set replacement seed convoy
  * 'p' : paste convoy
  * 'u' : set coupling convoy
+ * 'v' : sell convoi
+ * 't' : reverse convoy direction
  */
 bool tool_change_depot_t::init( player_t *player )
 {
@@ -8899,6 +9026,9 @@ bool tool_change_depot_t::init( player_t *player )
 			cnv->set_coupling_convoi(child);
 			break;
 		}
+		case 't': { // reverse convoy direction
+			cnv->set_reversing_needed(!cnv->is_reversing_needed());
+		}
 	}
 	return false;
 }
@@ -9023,6 +9153,13 @@ bool tool_change_traffic_light_t::init( player_t *player )
 
 /*
  * change state of roadsign
+ * r:set lane affinity for oneway road sign
+ * s:set guide signal state for signal
+ * o:set choose signal
+ * a:set advance to end state for signal
+ * c:set end of choose signal
+ * g:set end of guide signal
+ * 
  */
 bool tool_change_roadsign_t::init( player_t* )
 {
@@ -9060,6 +9197,59 @@ bool tool_change_roadsign_t::init( player_t* )
 			}
 		}
 		break;
+
+		case 'o':
+		// set guide signal state for signal
+		if(  grund_t *gr = welt->lookup(pos)  ) {
+			if( roadsign_t *rs = gr->find<signal_t>()  ) {
+				rs->set_choose_signal(inst);
+				signal_info_t* signal_info_win = (signal_info_t*)win_get_magic((ptrdiff_t)rs);
+				if(  signal_info_win  ) {
+					signal_info_win->update_data();
+				}
+			}
+		}
+		break;
+
+		case 'a':
+		// set advance to end state for signal
+		if(  grund_t *gr = welt->lookup(pos)  ) {
+			if( roadsign_t *rs = gr->find<signal_t>()  ) {
+				rs->set_advance_to_end(inst);
+				signal_info_t* signal_info_win = (signal_info_t*)win_get_magic((ptrdiff_t)rs);
+				if(  signal_info_win  ) {
+					signal_info_win->update_data();
+				}
+			}
+		}
+		break;
+		case 'c':
+		if(  grund_t *gr = welt->lookup(pos)  ) {
+			if( roadsign_t *rs = gr->find<roadsign_t>()  ) {
+				if(  rs->get_waytype()!=road_wt && rs->get_waytype()!=water_wt && rs->get_waytype()!=air_wt  ) {
+					rs->set_end_of_choose(inst);
+					end_of_choose_info_t* signal_info_win = (end_of_choose_info_t*)win_get_magic((ptrdiff_t)rs);
+					if(  signal_info_win  ) {
+						signal_info_win->update_data();
+					}
+				}
+			}
+		}
+		break;
+		case 'g':
+		if(  grund_t *gr = welt->lookup(pos)  ) {
+			if( roadsign_t *rs = gr->find<roadsign_t>()  ) {
+				if(  rs->get_waytype()!=road_wt && rs->get_waytype()!=water_wt && rs->get_waytype()!=air_wt  ) {
+					rs->set_end_of_guide(inst);
+					end_of_choose_info_t* signal_info_win = (end_of_choose_info_t*)win_get_magic((ptrdiff_t)rs);
+					if(  signal_info_win  ) {
+						signal_info_win->update_data();
+					}
+				}
+			}
+		}
+		break;
+
 
 		default:
 		// do nothing
@@ -9412,5 +9602,51 @@ bool tool_merge_player_t::init( player_t *player )
 	// delete merged player
 	welt->remove_player(merged_player_num);
 	
+	return false;
+}
+
+bool tool_change_factory_t::init( player_t* player )
+{
+	char tool=0;
+	koord pos2d;
+	// skip the rest of the command
+	const char *p = default_param;
+	while(  *p  &&  *p<=' '  ) {
+		p++;
+	}
+	sscanf( p, "%c,%hi,%hi", &tool, &pos2d.x, &pos2d.y );
+
+	// skip to the commands ...
+	uint8 z = 3;
+	while(  *p  &&  z>0  ) {
+		if(  *p==','  ) {
+			z--;
+		}
+		p++;
+	}
+
+	fabrik_t *factory = fabrik_t::get_fab(pos2d);
+	if(  factory==NULL  ){
+		dbg->warning("tool_change_factory_t::init", "no factory found at (%s)", pos2d.get_str());
+		return false;
+	}
+	if(  !player_t::check_owner( factory->get_owner(), player)  ) {
+		dbg->warning("tool_change_factory_t::init", "factory at (%s) belongs to another player", pos2d.get_str());
+		return false;
+	}	
+	switch (tool) {
+		case 'd': // avoid destroy, avoid close after retire
+		{
+			factory->set_no_close_factory(!factory->is_no_close_factory());			
+		}
+		break;
+		case 's': // set shipment size
+		{
+			uint16 shipment_size = 0;
+			int count=sscanf( p, "%hi", &shipment_size);
+			factory->set_shipment_size(shipment_size);
+		}
+		break;
+	}
 	return false;
 }
