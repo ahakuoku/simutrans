@@ -36,7 +36,7 @@ pedestrians do not enter
 Overtaking:
 追越設定:
 Can be cityroad:
-市道化の危機なのだ:
+市道化:
 Yes
 はい
 No
@@ -698,7 +698,7 @@ hl_btn_sort_throughput
 hl_btn_sort_waiting_percentage
 待機率
 transfers
-ご利用
+人乗降
 Factory Type
 産業の種類
 no close this factory
