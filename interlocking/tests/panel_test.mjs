@@ -170,7 +170,16 @@ try {
 	// start lever + destination button, point levers
 	const s1 = page.locator("svg g.clickable", { has: page.locator("title", { hasText: "(3, 5, 0)" }) }).first();
 	const dest2 = () => page.locator("svg g.clickable", { has: page.locator("title", { hasText: "着点ボタン：2番線" }) }).first();
-	check(await page.$$eval("#pointList .pt", ps => ps.length) === 2, "two point levers (21号, 22号)");
+	const rows = await page.$$eval("#pointList .pt", ps => ps.map(p => p.textContent));
+	check(rows.length === 3, "three point levers: " + rows.map(r => r.slice(0, 12)).join(" / "));
+	const revTip = async (name) => page.locator("#pointList .pt", { hasText: name }).locator("button", { hasText: "反位" }).getAttribute("title");
+	const same = (tip, a, b) => tip && tip.split("⇔").sort().join() === [a, b].sort().join();
+	check(same(await revTip("21号"), "西", "南"), "21号: reverse is the real turnout direction (西⇔南): " + await revTip("21号"));
+	check(same(await revTip("23号"), "東", "南"), "23号: reverse is 東⇔南: " + await revTip("23号"));
+	check(rows.some(r => r.includes("22号") && r.includes("双動")), "crossover is one lever 22号 (双動 イ・ロ)");
+	await page.locator("#pointList .pt", { hasText: "22号" }).locator("button", { hasText: "反位" }).click();
+	check(await page.evaluate(() => { const o = JSON.parse(localStorage.getItem("tidil.points." + stationId)); return o["9,5,0"] === "R" && o["9,6,0"] === "R"; }), "双動: both points thrown together");
+	await page.locator("#pointList .pt", { hasText: "22号" }).locator("button", { hasText: "自動" }).click();
 	await page.locator("#pointList .pt", { hasText: "21号" }).locator("button", { hasText: "定位" }).click();
 	await s1.click();
 	await sleep(300);

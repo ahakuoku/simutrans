@@ -8,7 +8,7 @@
 //  y=6          J-[A2 A2 A2]-----J               J = junctions (4,5) (11,5), curves (4,6) (11,6)
 //
 //  Station A has two platforms (y=5 and y=6), station B is a terminus at the east end.
-//  A separate line crosses on a bridge at x=10 (not connected).
+//  A separate line crosses on a bridge at x=10 (not connected). A crossover links both tracks at x=9.
 //  The train runs between B and A; on its way east it has to pass S1.
 //  OTRP has no script call to set a schedule, so the test driver sets the schedule
 //  and starts the train through the bridge (TOOL_CHANGE_CONVOI / TOOL_CHANGE_DEPOT).
@@ -39,6 +39,8 @@ function build_layout()
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(4, 5, 0), coord3d(4, 6, 0), rail, true), null)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(4, 6, 0), coord3d(11, 6, 0), rail, true), null)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(11, 6, 0), coord3d(11, 5, 0), rail, true), null)
+	// a short crossover between the two tracks east of the platforms (one lever for both points)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(9, 5, 0), coord3d(9, 6, 0), rail, true), null)
 
 	local station_desc = building_desc_x.get_available_stations(building_desc_x.station, wt_rail, good_desc_x.passenger)[0]
 	foreach (x in [6, 7, 8]) {
