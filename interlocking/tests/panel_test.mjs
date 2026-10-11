@@ -178,15 +178,22 @@ try {
 	check(same(await revTip("23号"), "東", "南"), "23号: reverse is 東⇔南: " + await revTip("23号"));
 	check(rows.some(r => r.includes("22号") && r.includes("双動")), "crossover is one lever 22号 (双動 イ・ロ)");
 	await page.locator("#pointList .pt", { hasText: "22号" }).locator("button", { hasText: "反位" }).click();
-	check(await page.evaluate(() => { const o = JSON.parse(localStorage.getItem("tidil.points." + stationId)); return o["9,5,0"] === "R" && o["9,6,0"] === "R"; }), "双動: both points thrown together");
+	const leverOf = async (k) => ((await getJson("/api/status")).stations[0].levers || []).find(l => l.pos.join(",") === k);
+	await waitFor(async () => (await leverOf("9,5,0"))?.value === "R" && (await leverOf("9,6,0"))?.value === "R", 10000, "crossover thrown");
+	check(true, "双動: both points thrown together (stored in the game)");
 	await page.locator("#pointList .pt", { hasText: "22号" }).locator("button", { hasText: "自動" }).click();
+	await waitFor(async () => !(await leverOf("9,5,0")) && !(await leverOf("9,6,0")), 10000, "crossover back to automatic");
 	await page.locator("#pointList .pt", { hasText: "21号" }).locator("button", { hasText: "定位" }).click();
+	await waitFor(async () => (await leverOf("4,5,0"))?.value === "N", 10000, "21号 normal");
+	await sleep(800); // next status poll of the panel
 	await s1.click();
 	await sleep(300);
 	check(!(await dest2().getAttribute("class") || "").includes("blink"), "21号 locked to 定位 (straight): platform 2 is not offered");
 	check((await page.locator("svg g.blink", { has: page.locator("title", { hasText: "着点ボタン：1番線" }) }).count()) === 1, "platform 1 is offered");
 	await s1.click(); // deselect
 	await page.locator("#pointList .pt", { hasText: "21号" }).locator("button", { hasText: "自動" }).click();
+	await waitFor(async () => !(await leverOf("4,5,0")), 10000, "21号 automatic");
+	await sleep(800);
 	await s1.click();
 	await page.waitForSelector("svg g.blink title:has-text('着点ボタン：2番線')", { state: "attached", timeout: 5000 });
 	await page.screenshot({ path: path.join(shots, "3a_nx_select.png") });

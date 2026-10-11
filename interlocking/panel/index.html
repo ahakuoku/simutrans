@@ -285,6 +285,16 @@ const ERRORS = {
 	"start and end are the same tile": "始点と着点が同じです",
 	"unknown station": "連動駅が見つかりません",
 	"unknown route": "進路が見つかりません",
+	"a point is set against the route": "ポイントが進路と反対の向きに固定されています（転てつてこを確認）",
+	"the point is locked": "このポイントは鎖錠中です（進路が通っているか在線中）",
+	"no point at this position": "その位置にポイントがありません",
+	"bad point lever": "転てつてこの指定が正しくありません",
+	"platform already registered": "この番線はすでに登録されています",
+	"platform belongs to another station": "別の連動駅の番線です",
+	"platform not registered": "この番線は登録されていません",
+	"not a platform": "ホームではありません",
+	"click the platform end where trains leave": "列車が出ていく側のホームの端をクリックしてください",
+	"the path does not follow the track": "線路に沿っていない経路です",
 };
 const tr = (e) => ERRORS[e] || e;
 
@@ -849,13 +859,12 @@ function buildLevers(L) {
 // operating: point levers, start lever + destination buttons
 // ---------------------------------------------------------------------------
 let nxStart = null;   // selected start lever: { pos, dep }
+// point lever positions are part of the game (saved, shared in network games)
 function pointLevers() {
-	try { return JSON.parse(localStore("points." + stationId) || "{}"); } catch (e) { return {}; }
-}
-function setPointLever(k, v) {
-	const o = pointLevers();
-	if (v === null) delete o[k]; else o[k] = v;
-	localStore("points." + stationId, JSON.stringify(o));
+	const st = station();
+	const o = {};
+	for (const lv of (st && st.levers) || []) o[key(lv.pos)] = lv.value;
+	return o;
 }
 const activeRoutes = () => status.routes.filter(r => r.state !== "idle");
 // the leg pair a route uses on a junction tile
@@ -899,7 +908,14 @@ function leverState(li) {
 	return { locked: !!lockedBy, by: lockedBy && lockedBy.by, manual: sts.every(x => x.manual === m) ? m : "mixed" };
 }
 function setLever(li, pos) {
-	for (const i of layout.levers[li].pts) setPointLever(key(layout.points[i].t.p), pos);
+	const st = station();
+	// all points of the lever in one command: a crossover moves together or not at all
+	const spec = layout.levers[li].pts.map(i => {
+		const pt = layout.points[i];
+		const prs = allowedPairs(pt, pos) || [];
+		return `${pt.t.p.join(":")}/${pos || ""}/${prs.map(p => p.join("-")).join(".")}`;
+	}).join(";");
+	command(`pt_set,${st.id},${spec}`, `${leverName(st, li)} ${posName(pos)}`);
 }
 
 /*

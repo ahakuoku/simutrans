@@ -50,6 +50,17 @@ struct il_departure_t {
 	vector_tpl<koord3d> tiles;    ///< all tiles of this platform track
 };
 
+/**
+ * Lever position of a point (junction tile), set on the panel. Only the leg pairs listed here
+ * may be used by routes over this tile. The panel decides which pairs are normal / reverse
+ * (from the track geometry); the interlocking only stores and enforces them.
+ */
+struct il_lever_t {
+	koord3d pos;
+	plainstring value;                ///< "N" (normal), "R" (reverse) or "a,b" (extra pair) for display
+	vector_tpl<uint8> pairs;          ///< allowed leg pairs, two ribi values each
+};
+
 /// one interlocked station (the unit of one panel)
 struct il_station_t {
 	uint16 id;
@@ -63,8 +74,10 @@ struct il_station_t {
 	/// names given on the panel (signals, platforms, points, exits), parallel vectors
 	vector_tpl<koord3d> label_pos;
 	vector_tpl<plainstring> label_names;
+	/// point lever positions (missing = automatic)
+	vector_tpl<il_lever_t *> levers;
 
-	~il_station_t() { clear_ptr_vector(departures); }
+	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); }
 };
 
 /**
@@ -150,6 +163,12 @@ private:
 	const char *cmd_set_path(il_station_t *st, const char *path, const char *name);
 	/// deletes temporary routes that are no longer set or occupied
 	void purge_temp_routes();
+	/// sets point levers: "x:y:z/value/a-b.c-d;..." (empty value = automatic), all or nothing
+	const char *cmd_points(il_station_t *st, const char *spec);
+	/// a point is locked when a set or occupied route runs over it or a train holds it
+	bool point_locked(koord3d pos) const;
+	/// NULL if the route agrees with all fixed point levers, otherwise an error
+	const char *check_points(const il_route_t *r) const;
 
 	/// breadth first search along the track from the start signal to the end tile
 	static bool find_path(koord3d start, koord3d end, vector_tpl<koord3d> &tiles);

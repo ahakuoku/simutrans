@@ -176,6 +176,21 @@ def run(args):
         check(not [r for r in p.status()["routes"] if r.get("temp")], "temporary route deleted after cancel")
         gap = ";".join(f"{x}:{y}:{z}" for x, y, z in r2["tiles"][:2] + r2["tiles"][3:])
         check(not p.cmd(f"set_path,{sid},{gap},bad")["ok"], "a path with a gap is refused")
+        # point levers (stored in the game): 21 at (4,5), legs W(8)-E(2) = straight, W(8)-S(4) = to platform 2
+        check(p.cmd(f"pt_set,{sid},4:5:0/N/8-2")["ok"], "fix point (4,5) to normal")
+        res = p.cmd(f"set,{r2['id']}")
+        check(not res["ok"] and res.get("error") == "a point is set against the route", f"route to platform 2 refused by the fixed point ({res.get('error')})")
+        check(not p.cmd(f"set_path,{sid},{path},x")["ok"], "temporary route against the point refused, too")
+        check(p.cmd(f"set,{r1['id']}")["ok"], "route along the fixed point direction is allowed")
+        res = p.cmd(f"pt_set,{sid},4:5:0/R/8-4")
+        check(not res["ok"] and res.get("error") == "the point is locked", f"a point under a set route cannot be thrown ({res.get('error')})")
+        check(p.cmd(f"cancel,{r1['id']}")["ok"], "cancel route 1")
+        check(p.cmd(f"pt_set,{sid},4:5:0//")["ok"], "point back to automatic")
+        check(not p.status()["stations"][0]["levers"], "no fixed points left")
+        check(p.cmd(f"pt_set,{sid},9:5:0/R/4-8.4-2;9:6:0/R/1-8.1-2")["ok"], "crossover: both points in one command")
+        check(len(p.status()["stations"][0]["levers"]) == 2, "both crossover points stored")
+        check(not p.cmd(f"pt_set,{sid},9:5:0/N/8-2;5:5:0/N/8-2")["ok"], "all or nothing: a bad entry rejects the whole command")
+        check(len([l for l in p.status()["stations"][0]["levers"] if l["value"] == "R"]) == 2, "crossover unchanged after the rejected command")
         check(p.cmd(f"name_set,{sid},3,5,0,第1場内, west")["ok"], "rename S1")
         lab = p.status()["stations"][0]["labels"]
         check(lab == [{"pos": [3, 5, 0], "name": "第1場内, west"}], f"name stored: {lab}")
@@ -257,12 +272,15 @@ def run(args):
         after = p.status()
         s_after = after["stations"][0]["signals"][0]
         d_after = [st for st in after["stations"] if st["id"] == sidb][0]["departures"][0]
+        lv_after = after["stations"][0]["levers"]
+        check(lv_after and lv_after[0]["pos"] != [9, 5, 0], f"point levers follow the rotation ({[l['pos'] for l in lv_after]})")
         check(d_after["pos"] != [13, 5, 0] and d_after["pos"] in d_after["tiles"], f"virtual departure follows the rotation ({d_after['pos']})")
         check(s_after["pos"] != [3, 5, 0] and s_after["aspect"] != "missing", f"signal follows the rotation ({s_after['pos']})")
         for _ in range(3):
             p.request(f"debug_tool {rot} ")
             p.wait_event(lambda e: e["type"] == "rotated", 30)
         check([r["tiles"] for r in p.status()["routes"]] == [r["tiles"] for r in before["routes"]], "four rotations restore the route tiles")
+        check(p.status()["stations"][0]["levers"] == before["stations"][0]["levers"], "four rotations restore the point levers")
         check(p.status()["stations"][0]["signals"][0]["pos"] == [3, 5, 0], "four rotations restore the signal position")
 
         print("[6] save and load")
@@ -284,7 +302,7 @@ def run(args):
     try:
         p = Panel(PORT)
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
-        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"]) for st in sts]
+        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")

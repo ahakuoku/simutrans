@@ -25,8 +25,8 @@
 
 
 // version of the interlocking data block in the savegame (independent of the OTRP version)
-// 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names
-#define IL_SAVE_VERSION 3
+// 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names  4: + point levers
+#define IL_SAVE_VERSION 4
 
 // maximum number of tiles searched when defining a route
 #define IL_MAX_SEARCH_NODES 4096
@@ -403,6 +403,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
 		max_fields = 6;
 	}
+	else if(  strncmp(buf, "pt_set,", 7) == 0  ) {
+		max_fields = 3;
+	}
 	char *f[10];
 	const uint32 n = split_param(buf, f, max_fields);
 	const char *cmd = f[0];
@@ -539,6 +542,18 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = cmd_set_path(st, f[2], n >= 4 ? f[3] : "");
 		}
 	}
+	else if(  strcmp(cmd, "pt_set") == 0  &&  n >= 3  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			error = cmd_points(st, f[2]);
+		}
+	}
 	else if(  strcmp(cmd, "name_set") == 0  &&  n >= 5  ) {
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
@@ -672,6 +687,9 @@ const char *interlocking_manager_t::cmd_set(il_route_t *r)
 			}
 		}
 	}
+	if(  const char *pe = check_points(r)  ) {
+		return pe;
+	}
 	// the track must exist and be free; tiles[0] (the signal) belongs to the block in front of it
 	for(  uint32 i = 1;  i < r->tiles.get_count();  i++  ) {
 		schiene_t *sch = get_rail(r->tiles[i]);
@@ -699,6 +717,129 @@ const char *interlocking_manager_t::cmd_cancel(il_route_t *r)
 		return "route is not set";
 	}
 	set_route_state(r, IL_IDLE);
+	return NULL;
+}
+
+
+bool interlocking_manager_t::point_locked(koord3d pos) const
+{
+	FOR(vector_tpl<il_route_t *>, r, routes) {
+		if(  r->state != IL_IDLE  &&  r->tiles.is_contained(pos)  ) {
+			return true;
+		}
+	}
+	const schiene_t *sch = get_rail(pos);
+	return sch  &&  sch->is_reserved();
+}
+
+
+const char *interlocking_manager_t::cmd_points(il_station_t *st, const char *spec)
+{
+	// parse everything first: all or nothing (both points of a crossover move together)
+	vector_tpl<il_lever_t *> parsed;
+	const char *error = NULL;
+	for(  const char *p = spec;  p  &&  *p  &&  !error;  ) {
+		int x, y, z;
+		if(  sscanf(p, "%d:%d:%d", &x, &y, &z) != 3  ) {
+			error = "bad point lever";
+			break;
+		}
+		il_lever_t *lv = new il_lever_t();
+		parsed.append(lv);
+		lv->pos = koord3d((sint16)x, (sint16)y, (sint8)z);
+		const char *end = strchr(p, ';');
+		const char *s1 = strchr(p, '/');
+		if(  s1  &&  (!end  ||  s1 < end)  ) {
+			const char *s2 = strchr(s1 + 1, '/');
+			if(  s2 == NULL  ||  (end  &&  s2 > end)  ) {
+				error = "bad point lever";
+				break;
+			}
+			char val[32];
+			const size_t vl = min((size_t)(s2 - s1 - 1), sizeof(val) - 1);
+			memcpy(val, s1 + 1, vl);
+			val[vl] = 0;
+			lv->value = val;
+			// pairs "a-b.c-d"
+			for(  const char *q = s2 + 1;  *q  &&  q != end;  ) {
+				int a, b;
+				if(  sscanf(q, "%d-%d", &a, &b) != 2  ) {
+					error = "bad point lever";
+					break;
+				}
+				lv->pairs.append((uint8)a);
+				lv->pairs.append((uint8)b);
+				while(  *q  &&  *q != '.'  &&  q != end  ) {
+					q++;
+				}
+				if(  *q == '.'  ) {
+					q++;
+				}
+			}
+		}
+		// check the tile
+		grund_t *gr = world()->lookup(lv->pos);
+		weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+		if(  !error  &&  (w == NULL  ||  ribi_t::is_threeway(w->get_ribi_unmasked()) == false)  ) {
+			error = "no point at this position";
+		}
+		for(  uint32 i = 0;  !error  &&  i < lv->pairs.get_count();  i++  ) {
+			const uint8 leg = lv->pairs[i];
+			if(  !ribi_t::is_single(leg)  ||  (w->get_ribi_unmasked() & leg) == 0  ) {
+				error = "bad point lever";
+			}
+		}
+		if(  !error  &&  point_locked(lv->pos)  ) {
+			error = "the point is locked";
+		}
+		p = end ? end + 1 : NULL;
+	}
+	if(  !error  ) {
+		FOR(vector_tpl<il_lever_t *>, lv, parsed) {
+			// replace the old position of this point
+			for(  uint32 i = 0;  i < st->levers.get_count();  i++  ) {
+				if(  st->levers[i]->pos == lv->pos  ) {
+					delete st->levers[i];
+					st->levers.remove_at(i);
+					break;
+				}
+			}
+			if(  lv->value.c_str()  &&  *lv->value.c_str()  &&  !lv->pairs.empty()  ) {
+				st->levers.append(lv);
+			}
+			else {
+				delete lv; // automatic
+			}
+		}
+		return NULL;
+	}
+	clear_ptr_vector(parsed);
+	return error;
+}
+
+
+const char *interlocking_manager_t::check_points(const il_route_t *r) const
+{
+	for(  uint32 i = 1;  i + 1 < r->tiles.get_count();  i++  ) {
+		FOR(vector_tpl<il_station_t *>, st, stations) {
+			FOR(vector_tpl<il_lever_t *>, lv, st->levers) {
+				if(  lv->pos != r->tiles[i]  ) {
+					continue;
+				}
+				const uint8 a = ribi_type(r->tiles[i], r->tiles[i - 1]);
+				const uint8 b = ribi_type(r->tiles[i], r->tiles[i + 1]);
+				bool ok = false;
+				for(  uint32 j = 0;  j + 1 < lv->pairs.get_count();  j += 2  ) {
+					if(  (lv->pairs[j] == a  &&  lv->pairs[j + 1] == b)  ||  (lv->pairs[j] == b  &&  lv->pairs[j + 1] == a)  ) {
+						ok = true;
+					}
+				}
+				if(  !ok  ) {
+					return "a point is set against the route";
+				}
+			}
+		}
+	}
 	return NULL;
 }
 
@@ -1078,6 +1219,27 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 				}
 			}
 		}
+		if(  version >= 4  ) {
+			uint32 vcount = st->levers.get_count();
+			file->rdwr_long(vcount);
+			for(  uint32 j = 0;  j < vcount;  j++  ) {
+				il_lever_t *lv = file->is_loading() ? new il_lever_t() : st->levers[j];
+				lv->pos.rdwr(file);
+				file->rdwr_str(lv->value);
+				uint32 pc = lv->pairs.get_count();
+				file->rdwr_long(pc);
+				for(  uint32 k = 0;  k < pc;  k++  ) {
+					uint8 v = file->is_loading() ? 0 : lv->pairs[k];
+					file->rdwr_byte(v);
+					if(  file->is_loading()  ) {
+						lv->pairs.append(v);
+					}
+				}
+				if(  file->is_loading()  ) {
+					st->levers.append(lv);
+				}
+			}
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -1115,6 +1277,19 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		}
 		for(  uint32 i = 0;  i < st->label_pos.get_count();  i++  ) {
 			st->label_pos[i].rotate90(y_size);
+		}
+		FOR(vector_tpl<il_lever_t *>, lv, st->levers) {
+			lv->pos.rotate90(y_size);
+			for(  uint32 i = 0;  i < lv->pairs.get_count();  i++  ) {
+				lv->pairs[i] = ribi_t::rotate90(lv->pairs[i]);
+			}
+			int a, b;
+			if(  lv->value.c_str()  &&  sscanf(lv->value.c_str(), "%d,%d", &a, &b) == 2  ) {
+				const uint8 ra = ribi_t::rotate90((ribi_t::ribi)a), rb = ribi_t::rotate90((ribi_t::ribi)b);
+				char tmp[16];
+				sprintf(tmp, "%d,%d", min(ra, rb), max(ra, rb));
+				lv->value = tmp;
+			}
 		}
 		FOR(vector_tpl<il_departure_t *>, d, st->departures) {
 			d->anchor.rotate90(y_size);
@@ -1169,6 +1344,19 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.append(",\"name\":");
 			append_json_string(buf, st->label_names[i].c_str());
 			buf.append("}");
+		}
+		buf.append("],\"levers\":[");
+		for(  uint32 i = 0;  i < st->levers.get_count();  i++  ) {
+			const il_lever_t *lv = st->levers[i];
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, lv->pos);
+			buf.append(",\"value\":");
+			append_json_string(buf, lv->value.c_str());
+			buf.append(",\"pairs\":[");
+			for(  uint32 j = 0;  j + 1 < lv->pairs.get_count();  j += 2  ) {
+				buf.printf("%s[%u,%u]", j ? "," : "", lv->pairs[j], lv->pairs[j + 1]);
+			}
+			buf.append("]}");
 		}
 		// virtual departure signals: the train standing on the platform track
 		buf.append("],\"departures\":[");
