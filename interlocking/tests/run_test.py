@@ -150,7 +150,8 @@ def run(args):
         # station B: dead-end platform without a departure signal -> virtual departure signal
         check(p.cmd("st_new,B terminus")["ok"], "create station B")
         sidb = [st for st in p.status()["stations"] if st["name"] == "B terminus"][0]["id"]
-        check(not p.cmd(f"dep_add,{sidb},12,5,0")["ok"], "virtual departure on a plain track is refused")
+        check(not p.cmd(f"dep_add,{sidb},11,5,0")["ok"], "virtual departure on a junction is refused")
+        check(not p.cmd(f"dep_add,{sidb},12,9,0")["ok"], "virtual departure without track is refused")
         check(p.cmd(f"dep_add,{sidb},14,5,0")["ok"], "register platform B as virtual departure signal (clicked at the buffer end)")
         dep = [st for st in p.status()["stations"] if st["id"] == sidb][0]["departures"][0]
         check(dep["pos"] == [13, 5, 0], f"departure end found automatically: {dep['pos']}")
@@ -263,6 +264,41 @@ def run(args):
         check(True, "train departed from B")
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == rb["id"] and e["state"] == "idle", 120)
         check(True, "departure route released automatically")
+
+        print("[4c] virtual shunting signal at the siding (5,7)-(5,8) and route names")
+        check(p.cmd(f"dep_add,{sid},5,8,0")["ok"], "register the siding as virtual shunting signal (clicked at the buffer end)")
+        sh = [d for d in p.status()["stations"][0]["departures"]][0]
+        check(sh["pos"] == [5, 7, 0] and sorted(sh["tiles"]) == [[5, 7, 0], [5, 8, 0]] and sh.get("shunt"), f"siding found, leaves at (5,7): {sh}")
+        check(p.cmd(f"rt_def,{sid},5,7,0,8,6,0,shunt-2")["ok"], "define the shunting route siding -> platform 2")
+        rs = [r for r in p.status()["routes"] if r["name"] == "shunt-2"][0]
+        check(rs["tiles"][0] == [5, 7, 0] and [5, 6, 0] in rs["tiles"] and rs["tiles"][-1] == [8, 6, 0], "shunting route runs out of the siding to platform 2")
+        check(p.cmd(f"rt_name,{rs['id']},入換 2番, test")["ok"], "rename the shunting route")
+        rs = [r for r in p.status()["routes"] if r["id"] == rs["id"]][0]
+        check(rs["name"] == "入換 2番, test", f"route name changed: {rs['name']}")
+        check(p.cmd(f"rt_name,{rs['id']},shunt-2")["ok"], "rename it back")
+        check(not p.cmd("rt_name,9999,x")["ok"], "renaming an unknown route is refused")
+        # send the train into the siding (waypoint at the buffer end), then to platform 2
+        sched = "0|0|0|2|0|5,8,0,0,0,0,0,0,0,0,0,100,0,0|7,6,0,0,0,0,0,0,0,0,0,100,0,0|"
+        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cid},{sched}")
+        wait_until(lambda: (lambda st: st["departures"][0].get("train"))(p.status()["stations"][0]), 120, "train in the siding")
+        wait_until(lambda: p.request("debug_convoys")["convoys"][0]["stop"] == 1, 60, "waypoint in the siding reached")
+        stay = []
+        for _ in range(12):
+            stay.append(p.request("debug_convoys")["convoys"][0]["pos"])
+            time.sleep(0.5)
+        check(all(pos[0] == 5 and pos[1] >= 7 for pos in stay), f"train waits in the siding without a shunting route ({stay[-1]})")
+        check(p.cmd(f"set,{rs['id']}")["ok"], "set the shunting route")
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == rs["id"] and e["state"] == "occupied", 60)
+        check(True, "train admitted into the shunting route")
+        trace = []
+        def served_p2():
+            c = p.request("debug_convoys")["convoys"][0]
+            trace.append(tuple(c["pos"]))
+            return c["stop"] == 0
+        wait_until(served_p2, 120, "train reached platform 2")
+        check(any(pos[1] == 6 and 6 <= pos[0] <= 8 for pos in trace[-6:]), f"train came out of the siding to platform 2 ({trace[-4:]})")
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == rs["id"] and e["state"] == "idle", 120)
+        check(True, "shunting route released automatically")
 
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")

@@ -43,6 +43,8 @@ struct il_route_t {
 /**
  * Virtual departure signal: a platform track whose trains may only depart when a route
  * from it is set (for platforms without a real departure signal, e.g. dead-end platforms).
+ * On a plain track without platform (siding, pull-out track) it works as a virtual shunting
+ * signal (入換信号) in the same way.
  * There is no object on the map, so the automatic mode is not affected at all.
  */
 struct il_departure_t {
@@ -150,6 +152,8 @@ private:
 	bool is_start_point(const il_station_t *st, koord3d pos) const;
 	/// tiles of the platform track at pos, and the end where trains leave
 	static const char *platform_track(koord3d pos, vector_tpl<koord3d> &tiles, koord3d &anchor);
+	/// same for a plain track without platform (siding, pull-out track): virtual shunting signal
+	static const char *siding_track(koord3d pos, vector_tpl<koord3d> &tiles, koord3d &anchor);
 	bool may_operate(const il_station_t *st, const player_t *player) const;
 
 	void set_route_state(il_route_t *r, uint8 state);

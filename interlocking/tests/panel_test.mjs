@@ -134,11 +134,26 @@ try {
 	await page.locator("#exitList button", { hasText: "仮想出発信号を解除" }).first().click();
 	await waitFor(async () => (await getJson("/api/status")).stations[0].departures.length === 0, 15000, "virtual departure removed");
 	check(true, "virtual departure signal removed again");
+	// siding (5,7)-(5,8): virtual shunting signal
+	const sidRows = await page.$$eval("#sidingList .check", cs => cs.map(c => c.textContent));
+	check(sidRows.length === 1 && sidRows[0].includes("留置1") && sidRows[0].includes("行き止まり"), "siding found: " + sidRows.join(" / "));
+	await page.locator("#sidingList button", { hasText: "仮想入換信号にする" }).click();
+	await waitFor(async () => (await getJson("/api/status")).stations[0].departures.some(d => d.shunt && d.pos.join(",") === "5,7,0"), 15000, "shunting signal registered");
+	await page.waitForSelector("#sidingList .check.ok");
+	check(true, "virtual shunting signal registered from the siding list (leaves at (5,7))");
 	await page.click("#btnAutoRoutes");
+	await page.waitForFunction(() => document.getElementById("toast").textContent.includes("本作成しました"), null, { timeout: 30000 }).catch(() => {});
 	const routes = await waitFor(async () => { const r = (await getJson("/api/status")).routes; return r.length >= 2 ? r : null; }, 30000, "routes")
 		.catch(async (e) => { console.log("  toast:", await page.textContent("#toast"), "\n  log:", await page.textContent("#log")); throw e; });
 	const names = routes.map(r => r.name).sort();
 	check(names.includes("S1→1番線") && names.includes("S1→2番線"), "routes generated: " + names.join(", "));
+	check(names.includes("S1→留置1") && names.includes("留置1入換→2番線"), "shunting routes generated (into and out of the siding)");
+	// rename a predefined route
+	page.once("dialog", (d) => d.accept("入換 留置→2番"));
+	await page.locator("#routeList .item", { hasText: "留置1入換→2番線" }).locator("button", { hasText: "名前" }).click();
+	await waitFor(async () => (await getJson("/api/status")).routes.some(r => r.name === "入換 留置→2番"), 10000, "route renamed");
+	await page.waitForSelector("#routeList .item:has-text('入換 留置→2番')");
+	check(true, "predefined route renamed from the route list");
 	await page.hover("#routeList .item >> nth=1");
 	await page.screenshot({ path: path.join(shots, "1_setup.png") });
 
@@ -171,7 +186,7 @@ try {
 	const s1 = page.locator("svg g.clickable", { has: page.locator("title", { hasText: "(3, 5, 0)" }) }).first();
 	const dest2 = () => page.locator("svg g.clickable", { has: page.locator("title", { hasText: "着点ボタン：2番線" }) }).first();
 	const rows = await page.$$eval("#pointList .pt", ps => ps.map(p => p.textContent));
-	check(rows.length === 3, "three point levers: " + rows.map(r => r.slice(0, 12)).join(" / "));
+	check(rows.length === 4, "four point levers: " + rows.map(r => r.slice(0, 12)).join(" / "));
 	const revTip = async (name) => page.locator("#pointList .pt", { hasText: name }).locator("button", { hasText: "反位" }).getAttribute("title");
 	const same = (tip, a, b) => tip && tip.split("⇔").sort().join() === [a, b].sort().join();
 	check(same(await revTip("21号"), "西", "南"), "21号: reverse is the real turnout direction (西⇔南): " + await revTip("21号"));
@@ -196,6 +211,8 @@ try {
 	await sleep(800);
 	await s1.click();
 	await page.waitForSelector("svg g.blink title:has-text('着点ボタン：2番線')", { state: "attached", timeout: 5000 });
+	check((await page.locator("svg g.blink", { has: page.locator("title", { hasText: "着点ボタン：留置1" }) }).count()) === 1, "siding offered as destination from S1");
+	check((await page.locator("svg g.clickable title", { hasText: "仮想入換信号 留置1入換" }).count()) === 1, "shunting signal drawn on the map as a start lever");
 	await page.screenshot({ path: path.join(shots, "3a_nx_select.png") });
 	const seen = [];
 	await dest2().click();

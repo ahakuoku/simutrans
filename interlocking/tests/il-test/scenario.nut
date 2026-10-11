@@ -5,7 +5,9 @@
 // Test layout for the TID interlocking panel (driven by interlocking/tests/run_test.py)
 //
 //  y=5   D . S1 J [A1 A1 A1] . . J . [B  B]      D = depot (1,5), S1 = entry signal (3,5)
-//  y=6          J-[A2 A2 A2]-----J               J = junctions (4,5) (11,5), curves (4,6) (11,6)
+//  y=6          J-J[A2 A2 A2]-----J               J = junctions (4,5) (11,5) (5,6), curves (4,6) (11,6)
+//  y=7            |                                siding (5,7)-(5,8): dead end at (5,8)
+//  y=8            .
 //
 //  Station A has two platforms (y=5 and y=6), station B is a terminus at the east end.
 //  A separate line crosses on a bridge at x=10 (not connected). A crossover links both tracks at x=9.
@@ -39,6 +41,8 @@ function build_layout()
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(4, 5, 0), coord3d(4, 6, 0), rail, true), null)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(4, 6, 0), coord3d(11, 6, 0), rail, true), null)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(11, 6, 0), coord3d(11, 5, 0), rail, true), null)
+	// a dead-end siding south of platform 2 (virtual shunting signal)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(5, 6, 0), coord3d(5, 8, 0), rail, true), null)
 	// a short crossover between the two tracks east of the platforms (one lever for both points)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(9, 5, 0), coord3d(9, 6, 0), rail, true), null)
 

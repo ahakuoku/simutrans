@@ -216,6 +216,10 @@ svg text { font-family: inherit; }
 			<p class="hint">番線の端ごとに、出ていく列車を管理する方法を選びます。ホームの先に出発信号があれば「登録」、信号がない番線（行き止まり式など）は「仮想出発信号」にします。仮想出発信号はマップに何も置かず、扱者モードのときだけ、進路を引くまで列車をホームで待たせます。</p>
 			<div class="list" id="exitList"></div>
 
+			<h2>4b. 留置線・引上線（入換）</h2>
+			<p class="hint">区域内の行き止まりの線路（留置線・引上線）です。「仮想入換信号にする」と、扱者モードのとき、入換進路を引くまで列車をその線路で待たせます（マップには何も置きません）。列車を入れるには、ダイヤでその線路を経由地にします。<b>列車全体がその線路に収まる長さ</b>が必要です。</p>
+			<div class="list" id="sidingList"></div>
+
 			<details id="otherSigs">
 				<summary>5. その他の信号（手動で登録する）</summary>
 				<p class="hint">上の自動判定で出てこない信号を登録したいときに使います。地図上の信号をクリックしても登録・解除できます。</p>
@@ -226,8 +230,8 @@ svg text { font-family: inherit; }
 			</details>
 
 			<details id="nameBox">
-				<summary>7. 名称（信号・番線・出口・ポイント）</summary>
-				<p class="hint">空欄にすると自動の名前（S1、1番線、出口1、21号 など）に戻ります。名前はセーブデータに保存され、ネットワークゲームでは全員に同じ名前が見えます。</p>
+				<summary>7. 名称（信号・番線・留置線・出口・ポイント）</summary>
+				<p class="hint">空欄にすると自動の名前（S1、1番線、留置1、出口1、21号 など）に戻ります。進路の名前は「6. 進路」の「名前」で変えられます。名前はセーブデータに保存され、ネットワークゲームでは全員に同じ名前が見えます。</p>
 				<div id="nameList" class="list"></div>
 			</details>
 
@@ -236,7 +240,7 @@ svg text { font-family: inherit; }
 				<button class="primary" id="btnAutoRoutes">進路を自動作成</button>
 				<button id="btnManualRoute">手で作る</button>
 			</div>
-			<p class="hint" id="routeHint">自動作成: 各てこ扱い信号から各番線へ、各番線の出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。</p>
+			<p class="hint" id="routeHint">自動作成: 各てこ扱い信号から各番線・留置線へ、各番線の出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。</p>
 			<div class="list" id="routeList"></div>
 
 			<h2>駅の削除</h2>
@@ -289,10 +293,14 @@ const ERRORS = {
 	"the point is locked": "このポイントは鎖錠中です（進路が通っているか在線中）",
 	"no point at this position": "その位置にポイントがありません",
 	"bad point lever": "転てつてこの指定が正しくありません",
-	"platform already registered": "この番線はすでに登録されています",
-	"platform belongs to another station": "別の連動駅の番線です",
-	"platform not registered": "この番線は登録されていません",
+	"platform already registered": "この番線・線路はすでに登録されています",
+	"platform belongs to another station": "別の連動駅の番線・線路です",
+	"platform not registered": "この番線・線路は登録されていません",
 	"not a platform": "ホームではありません",
+	"not a platform or a plain track": "ホームか、ポイント・信号のない線路をクリックしてください",
+	"the track is not connected": "この線路はほかの線路につながっていません",
+	"click the track end where trains leave": "列車が出ていく側の線路の端をクリックしてください",
+	"the platform track is not connected": "この番線はほかの線路につながっていません",
 	"click the platform end where trains leave": "列車が出ていく側のホームの端をクリックしてください",
 	"the path does not follow the track": "線路に沿っていない経路です",
 };
@@ -494,7 +502,13 @@ function computeConnected(haltId) {
 				const n = neighbour(t, e);
 				if (n) outs.push([e, n]);
 			}
-			if (!outs.length) { finalize(path, false); return; }
+			if (!outs.length) {
+				// a dead end (siding, pull-out track) belongs to the station unless a signal comes first
+				let j = -1;
+				path.forEach((x, i) => { if (bitCount(x.r) >= 3) j = i; });
+				finalize(path, !path.slice(j + 1).some(x => x.s));
+				return;
+			}
 			if (outs.length === 1) { d = outs[0][0]; t = outs[0][1]; continue; }
 			for (const [e, n] of outs) walk(n, e, path.slice());
 			return;
@@ -512,6 +526,7 @@ function computeConnected(haltId) {
 	if (st) {
 		for (const sg of st.signals) set.add(key(sg.pos));
 		for (const r of status.routes) if (r.station === st.id) for (const q of r.tiles) set.add(key(q));
+		for (const d of st.departures || []) for (const q of d.tiles) set.add(key(q));
 	}
 	return set;
 }
@@ -713,6 +728,7 @@ function signalLabel(st, pos) {
 	const i = st.signals.findIndex(s => key(s.pos) === key(pos));
 	if (i >= 0) return "S" + (i + 1);
 	const d = (st.departures || []).find(x => key(x.pos) === key(pos));
+	if (d && layout.sidingOf.has(key(pos))) return sidingName(st, layout.sidingOf.get(key(pos))) + "入換";
 	if (d) {
 		const g = layout.groupOf.has(key(pos)) ? layout.groupOf.get(key(pos)) : -1;
 		return (g >= 0 ? platformName(st, g) : "番線") + "出発";
@@ -735,15 +751,19 @@ function pointName(st, i) {
 	const lv = layout.levers[lo.li];
 	return leverName(st, lo.li) + (lv.double ? (lo.mi === 0 ? "イ" : "ロ") : "");
 }
+function sidingName(st, i) {
+	const sd = layout.sidings[i];
+	return (sd && labelAt(st, groupRep(sd.tiles).p)) || "留置" + (i + 1);
+}
 function exitName(st, i) { return labelAt(st, layout.exits[i].tile.p) || "出口" + (i + 1); }
 
 /*
  * Layout of the station for operating: platforms, points (junctions), exits and depots.
  * Computed after every refresh of the tracks.
  */
-let layout = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [], levers: [], leverOf: new Map() };
+let layout = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [], sidings: [], sidingOf: new Map(), levers: [], leverOf: new Map() };
 function computeLayout() {
-	const L = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [] };
+	const L = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [], sidings: [], sidingOf: new Map() };
 	const halt = stationHalt(currentArea());
 	if (stationTiles && halt) {
 		L.groups = platformGroups(halt);
@@ -769,9 +789,52 @@ function computeLayout() {
 				if (!L.exits.some(x => x.tile === t)) L.exits.push({ tile: t, dir: d });
 			}
 		}
+		L.sidings = findSidings(inside, L);
+		L.sidings.forEach((sd, i) => sd.tiles.forEach(t => L.sidingOf.set(key(t.p), i)));
 	}
 	buildLevers(L);
 	layout = L;
+}
+
+/*
+ * Sidings and pull-out tracks (留置線・引上線): runs of plain track (no junction, platform, signal or
+ * depot) that end in a buffer stop inside the area, plus every track registered as a virtual
+ * shunting signal. anchor = the end where trains leave (towards the points).
+ */
+const isPlain = (t) => t && bitCount(t.r) <= 2 && !t.h && !t.s && !t.d;
+function findSidings(inside, L) {
+	const st = station();
+	const shunt = new Set(((st && st.departures) || []).filter(d => d.shunt).flatMap(d => d.tiles.map(key)));
+	const exitTiles = new Set(L.exits.map(x => key(x.tile.p)));
+	const left = new Set(inside.filter(isPlain).map(t => key(t.p)));
+	const res = [];
+	for (const t0 of inside) {
+		if (!left.has(key(t0.p))) continue;
+		const g = [], q = [t0], ends = [];
+		left.delete(key(t0.p));
+		let deadEnd = false;
+		while (q.length) {
+			const c = q.shift();
+			g.push(c);
+			if (bitCount(c.r) === 1) deadEnd = true;
+			for (const d of DIRS) {
+				if (!(c.r & d)) continue;
+				const n = neighbour(c, d);
+				if (!n) continue;
+				if (left.has(key(n.p))) { left.delete(key(n.p)); q.push(n); }
+				else if (!isPlain(n) && !ends.some(e => e.t === c)) ends.push({ t: c, dir: d });
+			}
+		}
+		const registered = g.some(t => shunt.has(key(t.p)));
+		if (!registered && (!deadEnd || ends.length !== 1 || g.some(t => exitTiles.has(key(t.p))))) continue;
+		const dep = ((st && st.departures) || []).find(d => g.some(t => key(t.p) === key(d.pos)));
+		const anchor = dep ? tileIndex.get(key(dep.pos)) || ends[0]?.t : ends[0]?.t;
+		if (!anchor) continue;
+		res.push({ tiles: g, anchor, deadEnd, dep });
+	}
+	// number them from north to south, west to east
+	res.sort((a, b) => groupRep(a.tiles).p[1] - groupRep(b.tiles).p[1] || groupRep(a.tiles).p[0] - groupRep(b.tiles).p[0]);
+	return res;
 }
 
 const isStraight = (p) => p[0] === BACK[p[1]];
@@ -935,14 +998,16 @@ function findDestinations(start) {
 	const pointAt = new Map(layout.points.map(pt => [key(pt.t.p), pt]));
 	const exitAt = new Map(layout.exits.map((x, i) => [key(x.tile.p), i]));
 	const startGroup = layout.groupOf.get(key(t0.p));
+	const startSiding = layout.sidingOf.get(key(t0.p));
 	let firstDirs = DIRS.filter(d => t0.m & d);
 	if (start.dep) {
-		const g = new Set((layout.groups[startGroup] || [t0]).map(x => key(x.p)));
+		const own = startSiding !== undefined ? layout.sidings[startSiding].tiles : layout.groups[startGroup] || [t0];
+		const g = new Set(own.map(x => key(x.p)));
 		firstDirs = DIRS.filter(d => (t0.r & d) && neighbour(t0, d) && !g.has(key(neighbour(t0, d).p)));
 	}
-	const extend = (path, d, gi) => {
-		// on to the far end of the platform
-		const g = new Set(layout.groups[gi].map(x => key(x.p)));
+	const extend = (path, d, gi, tilesOf) => {
+		// on to the far end of the platform (or of the siding)
+		const g = new Set((tilesOf || layout.groups[gi]).map(x => key(x.p)));
 		let t = path[path.length - 1];
 		for (let n = 0; n < 200; n++) {
 			const e = DIRS.find(x => (t.r & x) && x !== BACK[d] && neighbour(t, x) && g.has(key(neighbour(t, x).p)));
@@ -967,6 +1032,11 @@ function findDestinations(start) {
 			if (layout.groupOf.has(k) && layout.groupOf.get(k) !== startGroup) {
 				const gi = layout.groupOf.get(k);
 				if (!(loose && res.has("p" + gi))) record("p" + gi, platformName(st, gi), extend(pathTo(), cur.d, gi));
+				continue;
+			}
+			if (layout.sidingOf.has(k) && layout.sidingOf.get(k) !== startSiding) {
+				const si = layout.sidingOf.get(k);
+				if (!(loose && res.has("s" + si))) record("s" + si, sidingName(st, si), extend(pathTo(), cur.d, si, layout.sidings[si].tiles));
 				continue;
 			}
 			if (exitAt.has(k)) {
@@ -1309,6 +1379,10 @@ function renderMap() {
 			const mid = gr.slice().sort((a, b) => a.p[0] - b.p[0] || a.p[1] - b.p[1])[Math.floor(gr.length / 2)];
 			button("p" + i, platformName(st, i), mid, 0, 0);
 		});
+		layout.sidings.forEach((sd, i) => {
+			const far = sd.tiles.slice().sort((a, b) => Math.hypot(b.p[0] - sd.anchor.p[0], b.p[1] - sd.anchor.p[1]) - Math.hypot(a.p[0] - sd.anchor.p[0], a.p[1] - sd.anchor.p[1]))[0];
+			button("s" + i, sidingName(st, i), far, 0, 0);
+		});
 		layout.exits.forEach((x, i) => button("x" + i, exitName(st, i), x.tile, DXY[x.dir][0] * CELL * .9, DXY[x.dir][1] * CELL * .9));
 		for (const t of layout.depots) button("d" + key(t.p), "車庫", t, 0, -CELL * .7);
 		if (nxStart) {
@@ -1325,9 +1399,13 @@ function renderMap() {
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
 		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
 		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(d.pos, true); });
-		el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 2, fill: clear ? "var(--green)" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
+		if (d.shunt) {
+			// virtual shunting signal: a diamond (lit white when a route is set)
+			el("path", { d: `M${x} ${y - r * 1.25} L${x + r * 1.25} ${y} L${x} ${y + r * 1.25} L${x - r * 1.25} ${y} Z`, fill: clear ? "#f4f4f4" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
+		}
+		else el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 2, fill: clear ? "var(--green)" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
 		el("text", { x, y: y - 11 * sc, "font-size": Math.max(11, 12 * sc), "font-weight": 700, "text-anchor": "middle", fill: "#fff" }, grp).textContent = signalLabel(st, d.pos);
-		grp.appendChild(el("title", {})).textContent = `仮想出発信号 ${signalLabel(st, d.pos)} (${d.pos.join(", ")})` + (d.train ? " " + d.train : "");
+		grp.appendChild(el("title", {})).textContent = `${d.shunt ? "仮想入換信号" : "仮想出発信号"} ${signalLabel(st, d.pos)} (${d.pos.join(", ")})` + (d.train ? " " + d.train : "");
 	}
 	// halt names
 	const named = new Set();
@@ -1361,7 +1439,7 @@ function renderRun() {
 	// approach indication: a train holds an interlocked signal at danger
 	const waiting = st.signals.filter(s => s.train && s.aspect === "red").map(s => `<div>${signalLabel(st, s.pos)}：${esc(s.train)} 待機中</div>`);
 	const leaving = (st.departures || []).filter(d => d.train && d.waiting && !status.routes.some(r => key(r.start) === key(d.pos) && r.state !== "idle"))
-		.map(d => `<div>${signalLabel(st, d.pos)}：${esc(d.train)} 発車待ち</div>`);
+		.map(d => `<div>${signalLabel(st, d.pos)}：${esc(d.train)} ${d.shunt ? "入換待ち" : "発車待ち"}</div>`);
 	ap.innerHTML = waiting.concat(leaving).join("") || `<span class="hint">待っている列車はありません</span>`;
 
 	// routes that are set or occupied
@@ -1412,7 +1490,7 @@ function renderRun() {
 	for (const [k, rs] of groups) {
 		const s = sig(k);
 		const startPos = rs[0].start;
-		const asp = s ? "現示：" + { green: "進行", red: "停止", yellow: "注意", missing: "なし" }[s.aspect] : isDepartureAnchor(st, startPos) ? "仮想出発信号" : "";
+		const asp = s ? "現示：" + { green: "進行", red: "停止", yellow: "注意", missing: "なし" }[s.aspect] : isDepartureAnchor(st, startPos) ? ((st.departures.find(d => key(d.pos) === key(startPos)) || {}).shunt ? "仮想入換信号" : "仮想出発信号") : "";
 		html += `<div class="group" data-sig="${k}"><div class="group-title">${signalLabel(st, startPos)}　${asp}</div>`;
 		for (const r of rs) {
 			const busy = [...pending.keys()].some(c => c === "set," + r.id || c === "cancel," + r.id);
@@ -1436,7 +1514,7 @@ function renderRun() {
 	}
 	hint.innerHTML = !st.manual ? "自動モードです。信号は通常どおり自動で動きます。進路を扱うには上の「扱者」に切り替えてください。" :
 		nxStart ? `<b>${esc(signalLabel(st, nxStart.pos))}</b> を選択中。光っている<b>着点ボタン</b>を押すと進路が引けます（もう一度信号を押すと選択をやめます）。` :
-		"① 地図上の<b>信号てこ</b>（白枠の信号・四角の出発点）を押す → ② 光った<b>着点ボタン</b>（番線・出口）を押す と進路が引けます。ポイントは自動で転換されます。下の転てつてこで向きを固定すると、その向きの進路だけになります。設定中の進路は、同じ信号てこをもう一度押すと取り消せます。";
+		"① 地図上の<b>信号てこ</b>（白枠の信号・四角の出発点・ひし形の入換信号）を押す → ② 光った<b>着点ボタン</b>（番線・留置線・出口）を押す と進路が引けます。ポイントは自動で転換されます。下の転てつてこで向きを固定すると、その向きの進路だけになります。設定中の進路は、同じ信号てこをもう一度押すと取り消せます。";
 }
 
 let checkPreview = null; // tiles highlighted while hovering a check row
@@ -1487,13 +1565,35 @@ function renderChecks(st) {
 		command(`dep_del,${st.id},${b.dataset.depdel}`, "仮想出発信号の解除 (" + b.dataset.depdel + ")"));
 }
 
+function renderSidings(st) {
+	const box = document.getElementById("sidingList");
+	const html = !st ? `<span class="hint">先に連動駅を作成してください</span>` : layout.sidings.map((sd, i) => {
+		const k = key(sd.anchor.p);
+		const title = `${esc(sidingName(st, i))}（${sd.anchor.p[0]}, ${sd.anchor.p[1]}）` + (sd.deadEnd ? `<span class="tag">行き止まり</span>` : "") + `<span class="tag">${sd.tiles.length}マス</span>`;
+		const msg = sd.dep ? `✔ 仮想入換信号（${esc(signalLabel(st, sd.dep.pos))}）で管理しています` : "入換を扱わないなら、このままで構いません。";
+		const btn = sd.dep ? `<button data-shdel="${key(sd.dep.pos)}">仮想入換信号を解除</button>` : `<button data-shadd="${k}">仮想入換信号にする</button>`;
+		return `<div class="check ${sd.dep ? "ok" : ""}" data-prev="${sd.tiles.map(t => key(t.p)).join(";")}"><div class="head"><b>${title}</b></div><div class="msg">${msg}</div><div class="acts">${btn}</div></div>`;
+	}).join("") || `<span class="hint">区域内に行き止まりの線路はありません。</span>`;
+	if (box.dataset.html === html) return;
+	box.innerHTML = box.dataset.html = html;
+	for (const c of box.querySelectorAll(".check")) {
+		c.addEventListener("mouseenter", () => { checkPreview = new Set(c.dataset.prev.split(";")); renderMap(); });
+		c.addEventListener("mouseleave", () => { checkPreview = null; renderMap(); });
+	}
+	for (const b of box.querySelectorAll("[data-shadd]")) b.addEventListener("click", () =>
+		command(`dep_add,${st.id},${b.dataset.shadd}`, "仮想入換信号の登録 (" + b.dataset.shadd + ")"));
+	for (const b of box.querySelectorAll("[data-shdel]")) b.addEventListener("click", () =>
+		command(`dep_del,${st.id},${b.dataset.shdel}`, "仮想入換信号の解除 (" + b.dataset.shdel + ")"));
+}
+
 function renderNames(st) {
 	const box = document.getElementById("nameList");
 	if (!st) { box.innerHTML = ""; box.dataset.html = ""; return; }
 	const rows = [];
 	st.signals.forEach((s, i) => rows.push(["信号 S" + (i + 1), s.pos, "S" + (i + 1)]));
 	layout.groups.forEach((g, i) => rows.push(["番線", groupRep(g).p, (i + 1) + "番線"]));
-	(st.departures || []).forEach(d => rows.push(["仮想出発信号", d.pos, "（番線名＋出発）"]));
+	layout.sidings.forEach((sd, i) => rows.push(["留置線", groupRep(sd.tiles).p, "留置" + (i + 1)]));
+	(st.departures || []).forEach(d => rows.push(d.shunt ? ["仮想入換信号", d.pos, "（線名＋入換）"] : ["仮想出発信号", d.pos, "（番線名＋出発）"]));
 	layout.exits.forEach((x, i) => rows.push(["出口", x.tile.p, "出口" + (i + 1)]));
 	layout.levers.forEach((lv, li) => rows.push([lv.double ? "ポイント（双動）" : "ポイント", layout.points[lv.pts[0]].t.p, (21 + li) + "号"]));
 	const html = rows.map(([kind, pos, def]) => `<div class="namerow"><span>${kind} (${pos[0]},${pos[1]})</span><input data-name="${pos.join(",")}" placeholder="${esc(def)}" value="${esc(labelAt(st, pos) || "")}"></div>`).join("");
@@ -1532,6 +1632,7 @@ function renderSetup() {
 		if (document.activeElement !== inp) inp.value = v ?? "";
 	}
 	renderChecks(st);
+	renderSidings(st);
 	renderNames(st);
 	// signals in the area
 	const sl = document.getElementById("sigList");
@@ -1554,19 +1655,25 @@ function renderSetup() {
 	// routes
 	const rl = document.getElementById("routeList");
 	const routes = st ? status.routes.filter(r => r.station === st.id) : [];
-	rl.innerHTML = routes.map(r => `<div class="item" data-route="${r.id}"><span>${esc(r.name)} <span class="hint">${r.tiles.length}マス</span></span><button data-del="${r.id}">削除</button></div>`).join("") || `<span class="hint">進路はまだありません</span>`;
+	rl.innerHTML = routes.map(r => `<div class="item" data-route="${r.id}"><span>${esc(r.name)} <span class="hint">${r.tiles.length}マス</span></span><span><button data-ren="${r.id}">名前</button><button data-del="${r.id}">削除</button></span></div>`).join("") || `<span class="hint">進路はまだありません</span>`;
 	for (const it of rl.querySelectorAll(".item")) {
 		const r = routes.find(x => x.id === Number(it.dataset.route));
 		it.addEventListener("mouseenter", () => { hoverRoute = r; renderMap(); });
 		it.addEventListener("mouseleave", () => { hoverRoute = null; renderMap(); });
 	}
+	for (const b of rl.querySelectorAll("button[data-ren]")) b.addEventListener("click", () => {
+		const r = routes.find(x => x.id === Number(b.dataset.ren));
+		const name = prompt("進路の名前", r.name);
+		if (name === null || !name.trim() || name.trim() === r.name) return;
+		command(`rt_name,${r.id},${name.trim()}`, "進路の名前 " + name.trim());
+	});
 	for (const b of rl.querySelectorAll("button[data-del]")) b.addEventListener("click", () => {
 		const r = routes.find(x => x.id === Number(b.dataset.del));
 		if (confirm(`進路「${r.name}」を削除しますか？`)) command("rt_del," + r.id, "進路の削除 " + r.name);
 	});
 	document.getElementById("routeHint").textContent = manualRoute ?
 		(manualRoute.start ? "着点の線路（番線の端など）をクリックしてください。（Esc で中止）" : "始点のてこ扱い信号をクリックしてください。（Esc で中止）") :
-		"自動作成: 各てこ扱い信号から各番線へ、出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。";
+		"自動作成: 各てこ扱い信号から各番線・留置線へ、出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。";
 	document.getElementById("btnManualRoute").textContent = manualRoute ? "中止" : "手で作る";
 }
 
@@ -1653,14 +1760,14 @@ async function autoRoutes() {
 	groups.forEach((g, i) => g.forEach(t => groupOf.set(key(t.p), i)));
 	const todo = [];
 
-	const starts = st.signals.map(s => ({ pos: s.pos, dep: false })).concat((st.departures || []).map(d => ({ pos: d.pos, dep: true })));
+	const starts = st.signals.map(s => ({ pos: s.pos, dep: false })).concat((st.departures || []).map(d => ({ pos: d.pos, dep: true, shunt: !!d.shunt })));
 	for (const s of starts) {
 		const anchor = tileIndex.get(key(s.pos));
 		if (!anchor) continue;
 		let t = anchor, reach;
 		if (s.dep) {
-			// virtual departure: leave the platform over the anchor end only
-			const g = groups[groupOf.get(key(anchor.p))] || [anchor];
+			// virtual departure / shunting signal: leave the platform (siding) over the anchor end only
+			const g = s.shunt && layout.sidingOf.has(key(anchor.p)) ? layout.sidings[layout.sidingOf.get(key(anchor.p))].tiles : groups[groupOf.get(key(anchor.p))] || [anchor];
 			const inG = new Set(g.map(x => key(x.p)));
 			const dOut = DIRS.find(d => (anchor.r & d) && neighbour(anchor, d) && !inG.has(key(neighbour(anchor, d).p)));
 			if (!dOut) continue;
@@ -1669,7 +1776,7 @@ async function autoRoutes() {
 		else reach = travel(t);
 		const startGroup = groupOf.get(key(t.p));
 		let toPlatform = 0;
-		if (!s.dep) groups.forEach((g, i) => {
+		if (!s.dep || s.shunt) groups.forEach((g, i) => {
 			if (i === startGroup) return;
 			// the far end of the platform seen from the signal
 			let best = null;
@@ -1686,7 +1793,22 @@ async function autoRoutes() {
 			toPlatform++;
 			todo.push({ start: s.pos, end: best.t.p, name: `${signalLabel(st, s.pos)}→${i + 1}番線` });
 		});
-		if (toPlatform === 0 || s.dep) {
+		// shunting routes into the sidings (to the buffer end)
+		layout.sidings.forEach((sd, i) => {
+			if (sd.tiles.includes(anchor)) return;
+			let best = null;
+			for (const q of sd.tiles) {
+				const n = reach.get(key(q.p));
+				if (n && (!best || n.dist > best.dist)) best = n;
+			}
+			if (!best) return;
+			for (let n = best.prev; n; n = n.prev) {
+				const gi = groupOf.get(key(n.t.p));
+				if (gi !== undefined && gi !== startGroup) return;
+			}
+			todo.push({ start: s.pos, end: best.t.p, name: `${signalLabel(st, s.pos)}→${sidingName(st, i)}` });
+		});
+		if (toPlatform === 0 || (s.dep && !s.shunt)) {
 			// departure signal: routes to the exits of the area (next signal or edge of the area)
 			let k = 0;
 			for (const [, n] of reach) {

@@ -177,7 +177,7 @@ const char *interlocking_manager_t::platform_track(koord3d pos, vector_tpl<koord
 	}
 	const halthandle_t halt = gr->get_halt();
 	if(  !halt.is_bound()  ) {
-		return "not a platform";
+		return siding_track(pos, tiles, anchor);
 	}
 	// all tiles of the same stop connected along this track
 	vector_tpl<grund_t *> todo;
@@ -217,6 +217,65 @@ const char *interlocking_manager_t::platform_track(koord3d pos, vector_tpl<koord
 	}
 	else {
 		return "click the platform end where trains leave";
+	}
+	return NULL;
+}
+
+
+/// plain track: no junction, no platform, no signal, no depot
+static bool is_plain_track(const grund_t *gr)
+{
+	const weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+	return w  &&  !ribi_t::is_threeway(w->get_ribi_unmasked())  &&  !gr->get_halt().is_bound()
+		&&  !w->has_signal()  &&  gr->get_depot() == NULL;
+}
+
+
+const char *interlocking_manager_t::siding_track(koord3d pos, vector_tpl<koord3d> &tiles, koord3d &anchor)
+{
+	tiles.clear();
+	grund_t *gr = world()->lookup(pos);
+	if(  !is_plain_track(gr)  ) {
+		return "not a platform or a plain track";
+	}
+	// the plain track between junctions, signals and platforms (a siding, a pull-out track)
+	vector_tpl<grund_t *> todo;
+	todo.append(gr);
+	tiles.append(pos);
+	vector_tpl<koord3d> ends;
+	for(  uint32 i = 0;  i < todo.get_count()  &&  tiles.get_count() < 256;  i++  ) {
+		grund_t *g = todo[i];
+		const ribi_t::ribi r = g->get_weg(track_wt)->get_ribi_unmasked();
+		bool is_end = false;
+		for(  int d = 0;  d < 4;  d++  ) {
+			grund_t *to = NULL;
+			if(  (r & ribi_t::nesw[d])  &&  g->get_neighbour(to, track_wt, ribi_t::nesw[d])  ) {
+				if(  is_plain_track(to)  ) {
+					if(  !tiles.is_contained(to->get_pos())  ) {
+						tiles.append(to->get_pos());
+						todo.append(to);
+					}
+				}
+				else {
+					is_end = true; // the track goes on to a junction, a signal or a platform
+				}
+			}
+		}
+		if(  is_end  ) {
+			ends.append(g->get_pos());
+		}
+	}
+	if(  ends.empty()  ) {
+		return "the track is not connected";
+	}
+	if(  ends.is_contained(pos)  ) {
+		anchor = pos;
+	}
+	else if(  ends.get_count() == 1  ) {
+		anchor = ends[0];
+	}
+	else {
+		return "click the track end where trains leave";
 	}
 	return NULL;
 }
@@ -399,6 +458,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	}
 	else if(  strncmp(buf, "set_path,", 9) == 0  ) {
 		max_fields = 4;
+	}
+	else if(  strncmp(buf, "rt_name,", 8) == 0  ) {
+		max_fields = 3;
 	}
 	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
 		max_fields = 6;
@@ -629,6 +691,19 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		else {
 			routes.remove(r);
 			delete r;
+		}
+	}
+	else if(  strcmp(cmd, "rt_name") == 0  &&  n >= 2  ) {
+		il_route_t *r = find_route((uint16)atoi(f[1]));
+		il_station_t *st = r ? find_station(r->station) : NULL;
+		if(  r == NULL  ||  st == NULL  ) {
+			error = "unknown route";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			r->name = n >= 3 ? f[2] : "";
 		}
 	}
 	else if(  (strcmp(cmd, "set") == 0  ||  strcmp(cmd, "cancel") == 0)  &&  n >= 2  ) {
@@ -1365,6 +1440,10 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.append(i ? "," : "");
 			buf.append("{\"pos\":");
 			append_json_pos(buf, d->anchor);
+			const grund_t *agr = world()->lookup(d->anchor);
+			if(  agr  &&  !agr->get_halt().is_bound()  ) {
+				buf.append(",\"shunt\":true"); // virtual shunting signal on a siding
+			}
 			buf.append(",\"tiles\":[");
 			convoihandle_t holder;
 			for(  uint32 j = 0;  j < d->tiles.get_count();  j++  ) {
