@@ -63,6 +63,7 @@ main { flex: 1; display: flex; min-height: 0; }
 }
 #viewbar button { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
 #viewbar button.on { background: #1f4f86; border-color: #2c6cb5; color: var(--text); }
+#viewbar .compass { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--text); }
 #viewbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 aside {
 	width: 360px; max-width: 45vw; background: var(--panel); border-left: 1px solid var(--line);
@@ -586,6 +587,12 @@ function renderViewbar() {
 		html += `<span class="sep"></span>高さ`;
 		for (const l of ls) html += `<button data-z="${l.z}" class="${o.hidden.includes(l.z) ? "" : "on"}">${l.name}（${l.z}）</button>`;
 	}
+	// compass: always shows where north is (turns with the map)
+	const deg = ((o.rot || 0) & 3) * 90;
+	html += `<span class="compass" title="方角（北が${["上", "右", "下", "左"][deg / 90]}）"><svg width="28" height="28" viewBox="0 0 28 28">
+		<circle cx="14" cy="14" r="12.5" fill="#141a24" stroke="#3a4558"/>
+		<g transform="rotate(${deg} 14 14)"><polygon points="14,3 18,14 10,14" fill="#ff5a5f"/><polygon points="14,25 18,14 10,14" fill="#8a94a3"/></g>
+		</svg><b>北</b>${["↑", "→", "↓", "←"][deg / 90]}</span>`;
 	if (bar.dataset.html === html) return;
 	bar.dataset.html = html;
 	bar.innerHTML = html;
