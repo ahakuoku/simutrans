@@ -580,6 +580,7 @@ function renderViewbar() {
 	const o = viewOpt();
 	const ls = layers();
 	let html = `<button data-zoom="out" title="縮小（Ctrl＋ホイール）">－</button><button data-zoom="fit" title="全体を表示">${Math.round(zoom * 100)}%</button><button data-zoom="in" title="拡大（Ctrl＋ホイール）">＋</button><span class="sep"></span>`;
+	html += `<button data-rot="1" title="地図を時計回りに90°回す（縦に引かれた駅を横向きにする）">↻ 回転 ${((o.rot || 0) & 3) * 90}°${(o.rot || 0) & 3 ? "（北は" + ["上", "右", "下", "左"][o.rot & 3] + "）" : ""}</button><span class="sep"></span>`;
 	html += `<button data-v="connected" class="${o.connected ? "on" : ""}" ${stationTiles ? "" : "disabled title='駅が分からないため使えません'"}>この駅につながる線路だけ</button>`;
 	if (ls.length > 1) {
 		html += `<span class="sep"></span>高さ`;
@@ -594,7 +595,8 @@ function renderViewbar() {
 			return;
 		}
 		const v = viewOpt();
-		if (b.dataset.v === "connected") v.connected = !v.connected;
+		if (b.dataset.rot) v.rot = ((v.rot || 0) + 1) & 3;
+		else if (b.dataset.v === "connected") v.connected = !v.connected;
 		else {
 			const z = Number(b.dataset.z);
 			v.hidden = v.hidden.includes(z) ? v.hidden.filter(x => x !== z) : v.hidden.concat([z]);
@@ -1247,10 +1249,14 @@ function renderMap() {
 	if (!a) return;
 	// fit the area into the window
 	const wrap = document.getElementById("mapwrap");
-	const fit = Math.floor(Math.min((wrap.clientWidth - 60) / (a.x2 - a.x1 + 1), (wrap.clientHeight - 60) / (a.y2 - a.y1 + 1)));
+	// the panel may be turned (a station drawn north-south on the map can be shown left-right like a real panel)
+	const rot = (viewOpt().rot || 0) & 3;
+	const W0 = a.x2 - a.x1 + 1, H0 = a.y2 - a.y1 + 1;
+	const WT = rot & 1 ? H0 : W0, HT = rot & 1 ? W0 : H0;
+	const fit = Math.floor(Math.min((wrap.clientWidth - 60) / WT, (wrap.clientHeight - 60) / HT));
 	CELL = Math.max(10, Math.round(Math.max(16, Math.min(56, fit || 34)) * zoom));
 	const sc = CELL / 34; // scale of the symbols
-	const w = (a.x2 - a.x1 + 1) * CELL, h = (a.y2 - a.y1 + 1) * CELL;
+	const w = WT * CELL, h = HT * CELL;
 	svg.setAttribute("width", w + 40); svg.setAttribute("height", h + 40);
 	svg.innerHTML = "";
 	const g = el("g", { transform: "translate(30,30)" }, svg);
@@ -1258,12 +1264,21 @@ function renderMap() {
 	const mainZ = mostVisibleZ();
 	const zs = layers().map(l => l.z).filter(z => z !== mainZ);
 	const shift = (z) => z === mainZ ? 0 : (zs.indexOf(z) + 1) * 0.22 * CELL;
-	const cx = (p) => (p[0] - a.x1) * CELL + CELL / 2 + shift(p[2]);
-	const cy = (p) => (p[1] - a.y1) * CELL + CELL / 2 + shift(p[2]);
+	// map tile -> grid cell of the (turned) panel, map direction -> screen vector
+	const uv = (p) => {
+		const lx = p[0] - a.x1, ly = p[1] - a.y1;
+		return rot === 0 ? [lx, ly] : rot === 1 ? [H0 - 1 - ly, lx] : rot === 2 ? [W0 - 1 - lx, H0 - 1 - ly] : [ly, W0 - 1 - lx];
+	};
+	const SV = (d) => { let [dx, dy] = DXY[d]; for (let i = 0; i < rot; i++) [dx, dy] = [-dy, dx]; return [dx, dy]; };
+	const cx = (p) => uv(p)[0] * CELL + CELL / 2 + shift(p[2]);
+	const cy = (p) => uv(p)[1] * CELL + CELL / 2 + shift(p[2]);
 
-	// grid labels
-	for (let x = a.x1; x <= a.x2; x += 5) el("text", { x: (x - a.x1) * CELL + CELL / 2, y: -10, fill: "#4a5568", "font-size": 10, "text-anchor": "middle" }, g).textContent = x;
-	for (let y = a.y1; y <= a.y2; y += 5) el("text", { x: -8, y: (y - a.y1) * CELL + CELL / 2 + 3, fill: "#4a5568", "font-size": 10, "text-anchor": "end" }, g).textContent = y;
+	// grid labels: map x and y on the edge they run along
+	const axisLabel = (p, text, horizontal) => horizontal
+		? el("text", { x: cx([p[0], p[1], mainZ]), y: -10, fill: "#4a5568", "font-size": 10, "text-anchor": "middle" }, g).textContent = text
+		: el("text", { x: -8, y: cy([p[0], p[1], mainZ]) + 3, fill: "#4a5568", "font-size": 10, "text-anchor": "end" }, g).textContent = text;
+	for (let x = a.x1; x <= a.x2; x += 5) axisLabel([x, a.y1], (rot & 1 ? "x" : "") + x, !(rot & 1));
+	for (let y = a.y1; y <= a.y2; y += 5) axisLabel([a.x1, y], (rot & 1 ? "y" : "") + y, !!(rot & 1));
 
 	const st = station();
 	const locked = routeStateOfTiles();
@@ -1285,7 +1300,7 @@ function renderMap() {
 			// not part of the view: faint, not clickable
 			for (const d of DIRS) {
 				if (!(t.r & d)) continue;
-				const [dx, dy] = DXY[d];
+				const [dx, dy] = SV(d);
 				el("line", { x1: cx(t.p), y1: cy(t.p), x2: cx(t.p) + dx * CELL / 2, y2: cy(t.p) + dy * CELL / 2,
 					stroke: t.c ? "var(--occupied)" : "var(--track)", "stroke-width": 3 * sc, "stroke-linecap": "round", opacity: .18 }, g);
 			}
@@ -1297,7 +1312,7 @@ function renderMap() {
 		const dashed = t.p[2] !== mainZ;
 		for (const d of DIRS) {
 			if (!(t.r & d)) continue;
-			const [dx, dy] = DXY[d];
+			const [dx, dy] = SV(d);
 			el("line", { x1: cx(t.p), y1: cy(t.p), x2: cx(t.p) + dx * CELL / 2, y2: cy(t.p) + dy * CELL / 2,
 				stroke: color, "stroke-width": 6 * sc, "stroke-linecap": "round", "stroke-dasharray": dashed ? "5 4" : "" }, g);
 		}
@@ -1325,7 +1340,7 @@ function renderMap() {
 		const interlocked = st && st.signals.some(s => key(s.pos) === key(t.p));
 		const travel = singleDir(t.m) || singleDir(t.r & ~BACK[singleDir(t.m) || 0]) || E;
 		// signal head on the left side of the direction of travel (Japanese left-hand running)
-		const [dx, dy] = DXY[travel];
+		const [dx, dy] = SV(travel);
 		const ox = dy * 11 * sc, oy = -dx * 11 * sc;
 		const x = cx(t.p) + ox, y = cy(t.p) + oy;
 		const fill = t.s.aspect === "green" ? "var(--green)" : t.s.aspect === "yellow" ? "var(--yellow)" : "var(--red)";
@@ -1353,7 +1368,7 @@ function renderMap() {
 		const legs = new Set();
 		for (const pr of ps.pairs || []) for (const leg of pr) legs.add(leg);
 		for (const leg of legs) {
-			const [dx, dy] = DXY[leg];
+			const [dx, dy] = SV(leg);
 			el("line", { x1: x, y1: y, x2: x + dx * 8 * sc, y2: y + dy * 8 * sc, stroke: color, "stroke-width": 3, "stroke-linecap": "round" }, grp);
 		}
 		el("text", { x: x + 11 * sc, y: y + 14 * sc, "font-size": Math.max(10, 10 * sc), fill: "#9fb3cf" }, grp).textContent = pointName(st, i);
@@ -1383,7 +1398,7 @@ function renderMap() {
 			const far = sd.tiles.slice().sort((a, b) => Math.hypot(b.p[0] - sd.anchor.p[0], b.p[1] - sd.anchor.p[1]) - Math.hypot(a.p[0] - sd.anchor.p[0], a.p[1] - sd.anchor.p[1]))[0];
 			button("s" + i, sidingName(st, i), far, 0, 0);
 		});
-		layout.exits.forEach((x, i) => button("x" + i, exitName(st, i), x.tile, DXY[x.dir][0] * CELL * .9, DXY[x.dir][1] * CELL * .9));
+		layout.exits.forEach((x, i) => button("x" + i, exitName(st, i), x.tile, SV(x.dir)[0] * CELL * .9, SV(x.dir)[1] * CELL * .9));
 		for (const t of layout.depots) button("d" + key(t.p), "車庫", t, 0, -CELL * .7);
 		if (nxStart) {
 			const t = tileIndex.get(key(nxStart.pos));

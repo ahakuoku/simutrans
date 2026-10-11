@@ -111,6 +111,16 @@ try {
 	check(cell1 > cell0 * 1.4, `zoom in: tile ${cell0}px -> ${cell1}px`);
 	await page.click("#viewbar button[data-zoom=fit]");
 	check(await page.evaluate(() => CELL) === cell0, "zoom back to 100%");
+	// turn the panel: a station drawn north-south can be shown left-right
+	const size = async () => page.evaluate(() => [Number(document.getElementById("map").getAttribute("width")), Number(document.getElementById("map").getAttribute("height"))]);
+	const s0 = await size();
+	await page.click("#viewbar button[data-rot]");
+	const s1r = await size();
+	check(Math.abs((s1r[0] - 40) / (s1r[1] - 40) - (s0[1] - 40) / (s0[0] - 40)) < 0.01, `rotated 90°: map ${s0} -> ${s1r}`);
+	check((await page.textContent("#viewbar button[data-rot]")).includes("90°（北は右）"), "rotation shown with the direction of north");
+	await page.screenshot({ path: path.join(shots, "0b_rotated.png") });
+	for (let i = 0; i < 3; i++) await page.click("#viewbar button[data-rot]");
+	check((await page.textContent("#viewbar button[data-rot]")).includes("0°"), "four turns: back to 0°");
 	const ownerOpts = await page.$$eval("#ownerSel option", os => os.map(o => o.textContent));
 	check(ownerOpts.length >= 2 && ownerOpts[0].startsWith("すべての会社"), "company filter: " + ownerOpts.join(" / "));
 	check(await page.$("#sigList .owner") !== null, "signal list (other signals) grouped by company: " + await page.textContent("#sigList .owner"));
