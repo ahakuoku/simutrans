@@ -155,35 +155,54 @@ try {
 	check((await page.textContent("#approach")).includes("待機中"), "approach indication: train waiting at S1");
 	await page.screenshot({ path: path.join(shots, "2_waiting.png") });
 
-	const lever2 = page.locator(".lever", { hasText: "S1→2番線" });
-	const lever1 = page.locator(".lever", { hasText: "S1→1番線" });
+	// shortcuts (predefined routes)
+	const lever2 = page.locator("#levers .lever", { hasText: "S1→2番線" });
+	const lever1 = page.locator("#levers .lever", { hasText: "S1→1番線" });
 	await lever1.click();
-	await page.waitForSelector(".lever:has-text('S1→1番線') .chip.set");
+	await page.waitForSelector("#levers .lever:has-text('S1→1番線') .chip.set");
 	await lever2.click();
 	await page.waitForFunction(() => document.getElementById("toast").textContent.includes("別の進路"), null, { timeout: 15000 });
-	check(true, "conflicting lever refused with a message: " + await page.textContent("#toast"));
+	check(true, "conflicting shortcut refused with a message: " + await page.textContent("#toast"));
 	await lever1.click();
-	await page.waitForSelector(".lever:has-text('S1→1番線') .chip:not(.set):not(.busy)");
-	check(true, "lever 1 cancelled");
+	await page.waitForSelector("#levers .lever:has-text('S1→1番線') .chip:not(.set):not(.busy)");
+	check(true, "shortcut 1 cancelled");
 
+	// start lever + destination button, point levers
+	const s1 = page.locator("svg g.clickable", { has: page.locator("title", { hasText: "(3, 5, 0)" }) }).first();
+	const dest2 = () => page.locator("svg g.clickable", { has: page.locator("title", { hasText: "着点ボタン：2番線" }) }).first();
+	check(await page.$$eval("#pointList .pt", ps => ps.length) === 2, "two point levers (21号, 22号)");
+	await page.locator("#pointList .pt", { hasText: "21号" }).locator("button", { hasText: "定位" }).click();
+	await s1.click();
+	await sleep(300);
+	check(!(await dest2().getAttribute("class") || "").includes("blink"), "21号 locked to 定位 (straight): platform 2 is not offered");
+	check((await page.locator("svg g.blink", { has: page.locator("title", { hasText: "着点ボタン：1番線" }) }).count()) === 1, "platform 1 is offered");
+	await s1.click(); // deselect
+	await page.locator("#pointList .pt", { hasText: "21号" }).locator("button", { hasText: "自動" }).click();
+	await s1.click();
+	await page.waitForSelector("svg g.blink title:has-text('着点ボタン：2番線')", { state: "attached", timeout: 5000 });
+	await page.screenshot({ path: path.join(shots, "3a_nx_select.png") });
 	const seen = [];
-	await lever2.click();
+	await dest2().click();
 	await waitFor(async () => {
 		const c = (await lineRequest("debug_convoys")).convoys[0];
 		seen.push(c.pos);
-		return (await getJson("/api/status")).routes.find(r => r.name === "S1→2番線").state === "occupied";
+		return (await getJson("/api/status")).routes.some(r => r.temp && r.name === "S1→2番線" && r.state === "occupied");
 	}, 30000, "admitted");
-	check(true, "train admitted (lever shows 進入)");
+	check(true, "route made with start lever + destination button, train admitted");
 	await sleep(300);
 	await page.screenshot({ path: path.join(shots, "3_entering.png") });
+	check(await page.locator("#pointList .pt.locked", { hasText: "21号" }).count() === 1, "21号 shown as locked by the route");
 	await waitFor(async () => {
 		const c = (await lineRequest("debug_convoys")).convoys[0];
 		seen.push(c.pos);
 		return c.pos[0] >= 13;
 	}, 120000, "train at B");
 	check(seen.some(p => p[1] === 6 && p[0] >= 6 && p[0] <= 8), "train ran over platform 2");
-	const st = (await getJson("/api/status")).routes.find(r => r.name === "S1→2番線").state;
-	check(st === "idle", "route released automatically");
+	check(!(await getJson("/api/status")).routes.some(r => r.temp), "temporary route released and removed");
+	// names
+	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "name_set," + station().id + ",4,5,0,北1号" }));
+	await page.waitForFunction(() => document.getElementById("pointList").textContent.includes("北1号"), null, { timeout: 10000 });
+	check(true, "point renamed (北1号) and shown");
 	await page.screenshot({ path: path.join(shots, "4_passed.png") });
 	console.log("ALL PANEL TESTS PASSED");
 }

@@ -25,8 +25,8 @@
 
 
 // version of the interlocking data block in the savegame (independent of the OTRP version)
-// 1: stations, signals, routes  2: + virtual departure signals
-#define IL_SAVE_VERSION 2
+// 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names
+#define IL_SAVE_VERSION 3
 
 // maximum number of tiles searched when defining a route
 #define IL_MAX_SEARCH_NODES 4096
@@ -385,7 +385,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		return "no command";
 	}
 
-	char buf[1024];
+	char buf[4096];
 	strncpy(buf, param, sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = 0;
 
@@ -396,6 +396,12 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	}
 	else if(  strncmp(buf, "rt_def,", 7) == 0  ) {
 		max_fields = 9;
+	}
+	else if(  strncmp(buf, "set_path,", 9) == 0  ) {
+		max_fields = 4;
+	}
+	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
+		max_fields = 6;
 	}
 	char *f[10];
 	const uint32 n = split_param(buf, f, max_fields);
@@ -518,6 +524,46 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 		}
 	}
+	else if(  strcmp(cmd, "set_path") == 0  &&  n >= 3  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  !st->manual  ) {
+			error = "station is in automatic mode";
+		}
+		else {
+			error = cmd_set_path(st, f[2], n >= 4 ? f[3] : "");
+		}
+	}
+	else if(  strcmp(cmd, "name_set") == 0  &&  n >= 5  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			const char *name = n >= 6 ? f[5] : "";
+			// note: vector_tpl::index_of() asserts when the element is missing
+			for(  uint32 i = 0;  i < st->label_pos.get_count();  i++  ) {
+				if(  st->label_pos[i] == pos  ) {
+					st->label_pos.remove_at(i);
+					st->label_names.remove_at(i);
+					break;
+				}
+			}
+			if(  *name  ) {
+				st->label_pos.append(pos);
+				st->label_names.append(plainstring(name));
+			}
+		}
+	}
 	else if(  strcmp(cmd, "rt_def") == 0  &&  n >= 8  ) {
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		const koord3d start((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
@@ -590,6 +636,8 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		error = "unknown command or missing parameters";
 	}
 
+	purge_temp_routes();
+
 	cbuffer_t ev;
 	ev.append("{\"type\":\"result\",\"command\":");
 	append_json_string(ev, param);
@@ -652,6 +700,75 @@ const char *interlocking_manager_t::cmd_cancel(il_route_t *r)
 	}
 	set_route_state(r, IL_IDLE);
 	return NULL;
+}
+
+
+const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *path, const char *name)
+{
+	// path: "x:y:z;x:y:z;..." from the start point to the destination
+	vector_tpl<koord3d> tiles;
+	for(  const char *p = path;  p  &&  *p;  ) {
+		int x, y, z;
+		if(  sscanf(p, "%d:%d:%d", &x, &y, &z) != 3  ) {
+			return "bad path";
+		}
+		tiles.append(koord3d((sint16)x, (sint16)y, (sint8)z));
+		p = strchr(p, ';');
+		if(  p  ) {
+			p++;
+		}
+	}
+	if(  tiles.get_count() < 2  ||  tiles.get_count() > IL_MAX_ROUTE_TILES  ) {
+		return "bad path";
+	}
+	if(  !is_start_point(st, tiles[0])  ) {
+		return "start is not a registered signal of this station";
+	}
+	// the path must follow the track in the direction of travel
+	ribi_t::ribi prev = ribi_t::none;
+	for(  uint32 i = 0;  i + 1 < tiles.get_count();  i++  ) {
+		grund_t *gr = world()->lookup(tiles[i]);
+		weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+		const koord diff = tiles[i + 1].get_2d() - tiles[i].get_2d();
+		const ribi_t::ribi d = ribi_t::is_single(ribi_type(diff)) ? ribi_type(diff) : (ribi_t::ribi)ribi_t::none;
+		grund_t *to = NULL;
+		// at a virtual departure the train may leave the platform end in any direction
+		if(  w == NULL  ) {
+			return "the path does not follow the track";
+		}
+		const ribi_t::ribi allowed = (i == 0  &&  find_departure_anchor(tiles[0])) ? w->get_ribi_unmasked() : w->get_ribi();
+		if(  d == ribi_t::none  ||  (allowed & d) == 0  ||  (prev != ribi_t::none  &&  d == ribi_t::backward(prev))
+			||  !gr->get_neighbour(to, track_wt, d)  ||  to->get_pos() != tiles[i + 1]  ) {
+			return "the path does not follow the track";
+		}
+		prev = d;
+	}
+	il_route_t *r = new il_route_t();
+	r->id = next_id++;
+	r->station = st->id;
+	r->name = name;
+	r->temp = true;
+	FOR(vector_tpl<koord3d>, const &t, tiles) {
+		r->tiles.append(t);
+	}
+	routes.append(r);
+	const char *error = cmd_set(r);
+	if(  error  ) {
+		routes.remove(r);
+		delete r;
+	}
+	return error;
+}
+
+
+void interlocking_manager_t::purge_temp_routes()
+{
+	for(  uint32 i = routes.get_count();  i-- > 0;  ) {
+		if(  routes[i]->temp  &&  routes[i]->state == IL_IDLE  ) {
+			delete routes[i];
+			routes.remove_at(i);
+		}
+	}
 }
 
 
@@ -889,6 +1006,7 @@ void interlocking_manager_t::step()
 			set_route_state(r, IL_IDLE);
 		}
 	}
+	purge_temp_routes();
 }
 
 
@@ -946,6 +1064,20 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 				}
 			}
 		}
+		if(  version >= 3  ) {
+			uint32 lcount = st->label_pos.get_count();
+			file->rdwr_long(lcount);
+			for(  uint32 j = 0;  j < lcount;  j++  ) {
+				koord3d k = file->is_loading() ? koord3d::invalid : st->label_pos[j];
+				plainstring nm = file->is_loading() ? plainstring() : st->label_names[j];
+				k.rdwr(file);
+				file->rdwr_str(nm);
+				if(  file->is_loading()  ) {
+					st->label_pos.append(k);
+					st->label_names.append(nm);
+				}
+			}
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -960,6 +1092,9 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 		file->rdwr_str(r->name);
 		file->rdwr_byte(r->state);
 		rdwr_pos_vector(file, r->tiles);
+		if(  version >= 3  ) {
+			file->rdwr_bool(r->temp);
+		}
 		if(  file->is_loading()  ) {
 			r->convoy = convoihandle_t();
 			if(  r->tiles.empty()  ) {
@@ -977,6 +1112,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 	FOR(vector_tpl<il_station_t *>, st, stations) {
 		for(  uint32 i = 0;  i < st->signals.get_count();  i++  ) {
 			st->signals[i].rotate90(y_size);
+		}
+		for(  uint32 i = 0;  i < st->label_pos.get_count();  i++  ) {
+			st->label_pos[i].rotate90(y_size);
 		}
 		FOR(vector_tpl<il_departure_t *>, d, st->departures) {
 			d->anchor.rotate90(y_size);
@@ -1024,6 +1162,14 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			}
 			buf.append("}");
 		}
+		buf.append("],\"labels\":[");
+		for(  uint32 i = 0;  i < st->label_pos.get_count();  i++  ) {
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, st->label_pos[i]);
+			buf.append(",\"name\":");
+			append_json_string(buf, st->label_names[i].c_str());
+			buf.append("}");
+		}
 		// virtual departure signals: the train standing on the platform track
 		buf.append("],\"departures\":[");
 		for(  uint32 i = 0;  i < st->departures.get_count();  i++  ) {
@@ -1058,7 +1204,7 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		first = false;
 		buf.printf("{\"id\":%u,\"station\":%u,\"name\":", r->id, r->station);
 		append_json_string(buf, r->name.c_str());
-		buf.printf(",\"state\":\"%s\",\"start\":", state_name(r->state));
+		buf.printf(",\"state\":\"%s\",\"temp\":%s,\"start\":", state_name(r->state), r->temp ? "true" : "false");
 		append_json_pos(buf, r->tiles[0]);
 		buf.append(",\"end\":");
 		append_json_pos(buf, r->tiles.back());

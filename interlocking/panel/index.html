@@ -99,6 +99,16 @@ details summary { cursor: pointer; color: var(--muted); font-size: 13px; font-we
 .check .msg { font-size: 12px; color: var(--muted); }
 .check .acts { display: flex; gap: 6px; flex-wrap: wrap; }
 .check button { font-size: 12px; padding: 3px 9px; }
+.pt { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 8px; background: var(--panel2); border-radius: 6px; }
+.pt > span:first-child { white-space: nowrap; }
+.pt .pos { display: flex; gap: 4px; flex-wrap: wrap; }
+.pt button { font-size: 12px; padding: 2px 8px; }
+.pt button.on { background: #1f4f86; border-color: #2c6cb5; }
+.pt.locked { opacity: .7; }
+.namerow { display: flex; align-items: center; gap: 6px; }
+.namerow span { flex: 0 0 120px; font-size: 12px; color: var(--muted); }
+.namerow input { flex: 1; min-width: 0; }
+svg .blink { animation: blink 1s steps(2, start) infinite; }
 .tag { font-size: 11px; padding: 1px 6px; border-radius: 8px; background: #2f3846; color: var(--muted); margin-left: 4px; }
 .list .owner { font-size: 12px; color: var(--muted); margin: 8px 0 2px; }
 .list .item { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 8px; background: var(--panel2); border-radius: 6px; }
@@ -144,9 +154,14 @@ svg text { font-family: inherit; }
 		<section id="tab-run">
 			<h2>接近表示</h2>
 			<div class="approach" id="approach"><span class="hint">待っている列車はありません</span></div>
-			<h2>進路てこ</h2>
-			<div id="levers" class="levers"></div>
+			<h2>扱い方</h2>
 			<p class="hint" id="runHint"></p>
+			<h2>設定中の進路</h2>
+			<div id="activeRoutes" class="levers"></div>
+			<h2>転てつてこ（ポイント）</h2>
+			<div id="pointList" class="list"></div>
+			<h2>ショートカット（登録済みの進路）</h2>
+			<div id="levers" class="levers"></div>
 			<div class="legend">
 				<span style="--c: var(--track)">線路</span>
 				<span style="--c: var(--locked)">進路鎖錠</span>
@@ -210,7 +225,13 @@ svg text { font-family: inherit; }
 				<div class="list" id="sigList"></div>
 			</details>
 
-			<h2>6. 進路</h2>
+			<details id="nameBox">
+				<summary>7. 名称（信号・番線・出口・ポイント）</summary>
+				<p class="hint">空欄にすると自動の名前（S1、1番線、出口1、21号 など）に戻ります。名前はセーブデータに保存され、ネットワークゲームでは全員に同じ名前が見えます。</p>
+				<div id="nameList" class="list"></div>
+			</details>
+
+			<h2>6. 進路（ショートカットとして登録）</h2>
 			<div class="row">
 				<button class="primary" id="btnAutoRoutes">進路を自動作成</button>
 				<button id="btnManualRoute">手で作る</button>
@@ -403,6 +424,7 @@ function indexTracks() {
 	}
 	const a = currentArea();
 	stationTiles = a ? computeConnected(stationHalt(a)) : null;
+	computeLayout();
 }
 
 // ---------------------------------------------------------------------------
@@ -670,15 +692,223 @@ function platformGroups(haltId) {
 	});
 	return groups;
 }
+// name given on the panel (stored in the game), or null
+function labelAt(st, pos) {
+	const l = st && (st.labels || []).find(x => key(x.pos) === key(pos));
+	return l ? l.name : null;
+}
 function signalLabel(st, pos) {
+	const own = labelAt(st, pos);
+	if (own) return own;
 	const i = st.signals.findIndex(s => key(s.pos) === key(pos));
 	if (i >= 0) return "S" + (i + 1);
 	const d = (st.departures || []).find(x => key(x.pos) === key(pos));
 	if (d) {
-		const g = platformGroups(stationHalt(currentArea())).findIndex(gr => gr.some(t => key(t.p) === key(pos)));
-		return (g >= 0 ? (g + 1) + "番線" : "番線") + "出発";
+		const g = layout.groupOf.has(key(pos)) ? layout.groupOf.get(key(pos)) : -1;
+		return (g >= 0 ? platformName(st, g) : "番線") + "出発";
 	}
 	return "信号";
+}
+// platforms are named at their first tile (north-west)
+const groupRep = (g) => g.slice().sort((a, b) => a.p[1] - b.p[1] || a.p[0] - b.p[0] || a.p[2] - b.p[2])[0];
+function platformName(st, gi) {
+	const g = layout.groups[gi];
+	return (g && labelAt(st, groupRep(g).p)) || (gi + 1) + "番線";
+}
+function pointName(st, i) { return labelAt(st, layout.points[i].t.p) || (21 + i) + "号"; }
+function exitName(st, i) { return labelAt(st, layout.exits[i].tile.p) || "出口" + (i + 1); }
+
+/*
+ * Layout of the station for operating: platforms, points (junctions), exits and depots.
+ * Computed after every refresh of the tracks.
+ */
+let layout = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [] };
+function computeLayout() {
+	const L = { groups: [], groupOf: new Map(), points: [], exits: [], depots: [] };
+	const halt = stationHalt(currentArea());
+	if (stationTiles && halt) {
+		L.groups = platformGroups(halt);
+		L.groups.forEach((g, i) => g.forEach(t => L.groupOf.set(key(t.p), i)));
+		const inside = [...stationTiles].map(k => tileIndex.get(k)).filter(Boolean)
+			.sort((a, b) => a.p[1] - b.p[1] || a.p[0] - b.p[0] || b.p[2] - a.p[2]);
+		for (const t of inside) {
+			if (bitCount(t.r) >= 3 && !L.groupOf.has(key(t.p))) {
+				const legs = DIRS.filter(d => t.r & d);
+				const pairs = [];
+				for (let i = 0; i < legs.length; i++) for (let j = i + 1; j < legs.length; j++) {
+					const a = legs[i], b = legs[j];
+					if ((t.m & a) || (t.m & b)) pairs.push([a, b]);
+				}
+				pairs.sort((x, y) => (y[0] === BACK[y[1]]) - (x[0] === BACK[x[1]])); // straight first (定位)
+				L.points.push({ t, pairs });
+			}
+			if (t.d) L.depots.push(t);
+			for (const d of DIRS) {
+				if (!(t.r & d) || !(t.m & d)) continue;
+				const n = neighbour(t, d);
+				if (n && stationTiles.has(key(n.p))) continue;
+				if (!L.exits.some(x => x.tile === t)) L.exits.push({ tile: t, dir: d });
+			}
+		}
+	}
+	layout = L;
+}
+
+// ---------------------------------------------------------------------------
+// operating: point levers, start lever + destination buttons
+// ---------------------------------------------------------------------------
+let nxStart = null;   // selected start lever: { pos, dep }
+function pointLevers() {
+	try { return JSON.parse(localStore("points." + stationId) || "{}"); } catch (e) { return {}; }
+}
+function setPointLever(k, v) {
+	const o = pointLevers();
+	if (v === null) delete o[k]; else o[k] = v;
+	localStore("points." + stationId, JSON.stringify(o));
+}
+const activeRoutes = () => status.routes.filter(r => r.state !== "idle");
+// the leg pair a route uses on a junction tile
+function routePairAt(r, pk) {
+	for (let i = 1; i + 1 < r.tiles.length; i++) {
+		if (key(r.tiles[i]) !== pk) continue;
+		const legOf = (q) => DIRS.find(d => DXY[d][0] === q[0] - r.tiles[i][0] && DXY[d][1] === q[1] - r.tiles[i][1]);
+		return [legOf(r.tiles[i - 1]), legOf(r.tiles[i + 1])];
+	}
+	return null;
+}
+// state of a point: locked by a route / held by a train, the shown pair, the manual lever position
+function pointState(pt) {
+	const pk = key(pt.t.p);
+	for (const r of activeRoutes()) {
+		const pair = routePairAt(r, pk);
+		if (pair) return { locked: true, pair, by: r.name };
+	}
+	const man = pointLevers()[pk];
+	const pair = (man !== undefined && pt.pairs[man]) ? pt.pairs[man] : null;
+	return { locked: !!pt.t.c, pair, manual: pair ? man : null };
+}
+const pairName = (pt, i) => (i === 0 && pt.pairs[0][0] === BACK[pt.pairs[0][1]] ? "定位" : "反位" + (pt.pairs.filter(p => p[0] !== BACK[p[1]]).length > 1 ? (i + (pt.pairs[0][0] === BACK[pt.pairs[0][1]] ? 0 : 1)) : "")) + `（${dirName(pt.pairs[i][0])}⇔${dirName(pt.pairs[i][1])}）`;
+
+/*
+ * Paths from a start lever to every destination (platform, exit, depot) that follows the
+ * track in the direction of travel and the manually set points. free = no train and no
+ * other route on it.
+ */
+function findDestinations(start) {
+	const st = station();
+	const res = new Map(); // id -> { label, path, free }
+	const t0 = tileIndex.get(key(start.pos));
+	if (!st || !t0 || !stationTiles) return res;
+	const blocked = new Set();
+	for (const r of activeRoutes()) for (const q of r.tiles.slice(1)) blocked.add(key(q));
+	for (const t of tracks.tiles) if (t.c && t !== t0) blocked.add(key(t.p));
+	const levers = pointLevers();
+	const pointAt = new Map(layout.points.map(pt => [key(pt.t.p), pt]));
+	const exitAt = new Map(layout.exits.map((x, i) => [key(x.tile.p), i]));
+	const startGroup = layout.groupOf.get(key(t0.p));
+	let firstDirs = DIRS.filter(d => t0.m & d);
+	if (start.dep) {
+		const g = new Set((layout.groups[startGroup] || [t0]).map(x => key(x.p)));
+		firstDirs = DIRS.filter(d => (t0.r & d) && neighbour(t0, d) && !g.has(key(neighbour(t0, d).p)));
+	}
+	const extend = (path, d, gi) => {
+		// on to the far end of the platform
+		const g = new Set(layout.groups[gi].map(x => key(x.p)));
+		let t = path[path.length - 1];
+		for (let n = 0; n < 200; n++) {
+			const e = DIRS.find(x => (t.r & x) && x !== BACK[d] && neighbour(t, x) && g.has(key(neighbour(t, x).p)));
+			if (!e) break;
+			t = neighbour(t, e); d = e; path.push(t);
+		}
+		return path;
+	};
+	for (const loose of [false, true]) {
+		const seen = new Set();
+		const q = firstDirs.map(d => ({ t: neighbour(t0, d), d, prev: { t: t0, prev: null } })).filter(x => x.t);
+		while (q.length) {
+			const cur = q.shift();
+			const t = cur.t, k = key(t.p);
+			const sk = k + "|" + cur.d;
+			if (seen.has(sk)) continue;
+			seen.add(sk);
+			if (!stationTiles.has(k)) continue;
+			if (!loose && blocked.has(k)) continue;
+			const pathTo = () => { const p = []; for (let n = cur; n; n = n.prev) p.unshift(n.t); return p; };
+			const record = (id, label, path) => { if (!res.has(id) || (!loose && !res.get(id).free)) { if (!res.has(id) || !loose) res.set(id, { label, path, free: !loose }); } };
+			if (layout.groupOf.has(k) && layout.groupOf.get(k) !== startGroup) {
+				const gi = layout.groupOf.get(k);
+				if (!(loose && res.has("p" + gi))) record("p" + gi, platformName(st, gi), extend(pathTo(), cur.d, gi));
+				continue;
+			}
+			if (exitAt.has(k)) {
+				const i = exitAt.get(k);
+				if (!(loose && res.has("x" + i))) record("x" + i, exitName(st, i), pathTo());
+				// the exit tile may also lead on (e.g. a junction at the edge): do not continue
+				continue;
+			}
+			if (t.d) {
+				if (!(loose && res.has("d" + k))) record("d" + k, "車庫", pathTo());
+				continue;
+			}
+			// direction of travel, points
+			let exits = t.m & ~BACK[cur.d];
+			const pt = pointAt.get(k);
+			if (pt) {
+				const man = levers[k];
+				const pair = (man !== undefined && pt.pairs[man]) ? pt.pairs[man] : null;
+				const came = BACK[cur.d];
+				if (pair) {
+					if (!pair.includes(came)) continue; // the point is set against us
+					exits &= pair[0] === came ? pair[1] : pair[0];
+				}
+			}
+			for (const e of DIRS) {
+				if (!(exits & e)) continue;
+				const n = neighbour(t, e);
+				if (n) q.push({ t: n, d: e, prev: cur });
+			}
+		}
+	}
+	return res;
+}
+
+function startClicked(pos, dep) {
+	const st = station();
+	if (!st.manual) { toast("自動モードです。「扱者」に切り替えてください", true); return; }
+	// a route from this lever is set: pulling the lever back cancels it
+	const set = activeRoutes().find(r => r.station === st.id && key(r.start) === key(pos));
+	if (set) {
+		if (set.state === "set") command("cancel," + set.id, "進路取消 " + set.name);
+		else toast("列車が進入中です。通過すると自動で解除されます", true);
+		nxStart = null;
+		render();
+		return;
+	}
+	nxStart = nxStart && key(nxStart.pos) === key(pos) ? null : { pos, dep };
+	render();
+}
+
+function destinationClicked(id) {
+	const st = station();
+	if (!nxStart) { toast("先に信号てこ（信号・出発点）を押してください", true); return; }
+	const d = findDestinations(nxStart).get(id);
+	if (!d) { toast("この着点へは進路が引けません（線路の向き・ポイントを確認）"); return; }
+	if (!d.free) { toast("在線しているか、ほかの進路と重なるため引けません"); return; }
+	const name = `${signalLabel(st, nxStart.pos)}→${d.label}`;
+	command(`set_path,${st.id},${d.path.map(t => t.p.join(":")).join(";")},${name}`, "進路設定 " + name);
+	nxStart = null;
+	render();
+}
+
+function pointClicked(i) {
+	const pt = layout.points[i];
+	const ps = pointState(pt);
+	if (ps.locked) { toast(`${pointName(station(), i)} は鎖錠中です` + (ps.by ? `（${ps.by}）` : "（在線）"), true); return; }
+	// 自動 -> 定位 -> 反位 ... -> 自動
+	const cur = ps.manual;
+	const next = cur === null ? 0 : (cur + 1 < pt.pairs.length ? cur + 1 : null);
+	setPointLever(key(pt.t.p), next);
+	render();
 }
 const isDepartureAnchor = (st, pos) => !!(st && (st.departures || []).some(d => key(d.pos) === key(pos)));
 const dirName = (d) => ({ [N]: "北", [E]: "東", [S]: "南", [W]: "西" }[d] || "");
@@ -912,6 +1142,49 @@ function renderMap() {
 		grp.appendChild(el("title", {})).textContent = `${t.s.name} (${t.p.join(", ")}) ${layerName(t.p[2])} ${companyName(t.s.o)}` + (interlocked ? " てこ扱い" : "");
 		grp.addEventListener("click", (e) => { e.stopPropagation(); signalClicked(t, interlocked); });
 	}
+	// points (junctions): the lever position or the leg pair of the route on it
+	if (st) layout.points.forEach((pt, i) => {
+		const t = pt.t;
+		if (!isVisible(t)) return;
+		const ps = pointState(pt);
+		const color = ps.locked && ps.by ? "var(--locked)" : ps.manual !== null && ps.manual !== undefined ? "var(--accent)" : "#6b7687";
+		const x = cx(t.p), y = cy(t.p);
+		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
+		el("circle", { cx: x, cy: y, r: 9 * sc, fill: "#141a24", stroke: color, "stroke-width": 2 }, grp);
+		if (ps.pair) for (const leg of ps.pair) {
+			const [dx, dy] = DXY[leg];
+			el("line", { x1: x, y1: y, x2: x + dx * 8 * sc, y2: y + dy * 8 * sc, stroke: color, "stroke-width": 3, "stroke-linecap": "round" }, grp);
+		}
+		el("text", { x: x + 11 * sc, y: y + 14 * sc, "font-size": Math.max(10, 10 * sc), fill: "#9fb3cf" }, grp).textContent = pointName(st, i);
+		grp.appendChild(el("title", {})).textContent = `${pointName(st, i)} ` + (ps.by ? `鎖錠中（${ps.by}）` : ps.manual !== null && ps.manual !== undefined ? pairName(pt, ps.manual) : "自動") + "（クリックで切り替え）";
+		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); pointClicked(i); });
+	});
+	// destination buttons (着点): lit when reachable from the selected start lever
+	if (st && tab === "run") {
+		const dests = nxStart ? findDestinations(nxStart) : new Map();
+		const button = (id, label, t, ox, oy) => {
+			if (!t || !isVisible(t)) return;
+			const d = dests.get(id);
+			const lit = d && d.free, dim = d && !d.free;
+			const w = Math.max(44, label.length * 12) * Math.max(.8, sc * .9), h = 18 * Math.max(.8, sc * .9);
+			const x = cx(t.p) + ox, y = cy(t.p) + oy;
+			const grp = el("g", { class: "clickable" + (lit ? " blink" : "") }, g);
+			el("rect", { x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 4, fill: lit ? "var(--yellow)" : "#20283a", stroke: lit || dim ? "var(--yellow)" : "#3a4558", "stroke-dasharray": dim ? "4 3" : "" }, grp);
+			el("text", { x, y: y + 4, "font-size": 11, "text-anchor": "middle", fill: lit ? "#1a1a1a" : "#9fb3cf", "font-weight": 600 }, grp).textContent = label;
+			grp.appendChild(el("title", {})).textContent = `着点ボタン：${label}` + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
+			grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); });
+		};
+		layout.groups.forEach((gr, i) => {
+			const mid = gr.slice().sort((a, b) => a.p[0] - b.p[0] || a.p[1] - b.p[1])[Math.floor(gr.length / 2)];
+			button("p" + i, platformName(st, i), mid, 0, 0);
+		});
+		layout.exits.forEach((x, i) => button("x" + i, exitName(st, i), x.tile, DXY[x.dir][0] * CELL * .9, DXY[x.dir][1] * CELL * .9));
+		for (const t of layout.depots) button("d" + key(t.p), "車庫", t, 0, -CELL * .7);
+		if (nxStart) {
+			const t = tileIndex.get(key(nxStart.pos));
+			if (t) el("circle", { cx: cx(t.p), cy: cy(t.p), r: 16 * sc, fill: "none", stroke: "var(--yellow)", "stroke-width": 3, class: "blink", "pointer-events": "none" }, g);
+		}
+	}
 	// virtual departure signals: a square at the platform end
 	if (st) for (const d of st.departures || []) {
 		const t = tileIndex.get(key(d.pos));
@@ -919,7 +1192,8 @@ function renderMap() {
 		const rs = status.routes.filter(r => key(r.start) === key(d.pos));
 		const clear = rs.some(r => r.state !== "idle");
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
-		const grp = el("g", {}, g);
+		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
+		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(d.pos, true); });
 		el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 2, fill: clear ? "var(--green)" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
 		el("text", { x, y: y - 11 * sc, "font-size": Math.max(11, 12 * sc), "font-weight": 700, "text-anchor": "middle", fill: "#fff" }, grp).textContent = signalLabel(st, d.pos);
 		grp.appendChild(el("title", {})).textContent = `仮想出発信号 ${signalLabel(st, d.pos)} (${d.pos.join(", ")})` + (d.train ? " " + d.train : "");
@@ -959,7 +1233,40 @@ function renderRun() {
 		.map(d => `<div>${signalLabel(st, d.pos)}：${esc(d.train)} 発車待ち</div>`);
 	ap.innerHTML = waiting.concat(leaving).join("") || `<span class="hint">待っている列車はありません</span>`;
 
-	const routes = status.routes.filter(r => r.station === st.id);
+	// routes that are set or occupied
+	const act = document.getElementById("activeRoutes");
+	const mine = activeRoutes().filter(r => r.station === st.id);
+	const actHtml = mine.map(r => `<button class="lever" data-active="${r.id}"><span><span class="name">${esc(r.name)}</span></span>${r.state === "set" ? `<span class="chip set">設定（押すと取消）</span>` : `<span class="chip occupied">進入</span>`}</button>`).join("") || `<span class="hint">ありません</span>`;
+	if (act.dataset.html !== actHtml) {
+		act.innerHTML = act.dataset.html = actHtml;
+		for (const b of act.querySelectorAll("[data-active]")) {
+			const r = mine.find(x => x.id === Number(b.dataset.active));
+			b.addEventListener("click", () => leverClicked(r));
+			b.addEventListener("mouseenter", () => { hoverRoute = r; renderMap(); });
+			b.addEventListener("mouseleave", () => { hoverRoute = null; renderMap(); });
+		}
+	}
+	// point levers
+	const pl = document.getElementById("pointList");
+	const plHtml = layout.points.map((pt, i) => {
+		const ps = pointState(pt);
+		const btns = [`<button data-pt="${i}" data-v="-1" class="${ps.manual === null || ps.manual === undefined ? "on" : ""}">自動</button>`]
+			.concat(pt.pairs.map((pr, j) => `<button data-pt="${i}" data-v="${j}" class="${ps.manual === j ? "on" : ""}">${pairName(pt, j)}</button>`)).join("");
+		return `<div class="pt ${ps.locked ? "locked" : ""}"><span>${esc(pointName(st, i))}${ps.locked ? ` <span class="tag">鎖錠${ps.by ? "：" + esc(ps.by) : "（在線）"}</span>` : ""}</span><span class="pos">${btns}</span></div>`;
+	}).join("") || `<span class="hint">区域内にポイントはありません</span>`;
+	if (pl.dataset.html !== plHtml) {
+		pl.innerHTML = pl.dataset.html = plHtml;
+		for (const b of pl.querySelectorAll("button[data-pt]")) b.addEventListener("click", () => {
+			const pt = layout.points[Number(b.dataset.pt)];
+			const ps = pointState(pt);
+			if (ps.locked) { toast(`${pointName(st, Number(b.dataset.pt))} は鎖錠中です`, true); return; }
+			const v = Number(b.dataset.v);
+			setPointLever(key(pt.t.p), v < 0 ? null : v);
+			render();
+		});
+	}
+
+	const routes = status.routes.filter(r => r.station === st.id && !r.temp);
 	const groups = new Map();
 	for (const r of routes) {
 		const k = key(r.start);
@@ -985,7 +1292,7 @@ function renderRun() {
 		html += `</div>`;
 	}
 	if (selectedSignal && !groups.has(selectedSignal)) selectedSignal = null;
-	lv.innerHTML = html || `<span class="hint">進路がありません。「設定」タブで作成してください。</span>`;
+	lv.innerHTML = html || `<span class="hint">登録済みの進路はありません（設定タブの「進路を自動作成」で作れます）。</span>`;
 	for (const b of lv.querySelectorAll(".lever")) {
 		const r = routes.find(x => x.id === Number(b.dataset.route));
 		b.addEventListener("click", () => leverClicked(r));
@@ -993,8 +1300,9 @@ function renderRun() {
 		b.addEventListener("mouseleave", () => { hoverRoute = null; renderMap(); });
 		if (selectedSignal && key(r.start) !== selectedSignal) b.style.opacity = .4;
 	}
-	hint.textContent = st.manual ? "てこをクリックすると進路を設定／取消します。進路にマウスを重ねると地図上に表示されます。" :
-		"自動モードです。信号は通常どおり自動で動きます。進路を扱うには上の「扱者」に切り替えてください。";
+	hint.innerHTML = !st.manual ? "自動モードです。信号は通常どおり自動で動きます。進路を扱うには上の「扱者」に切り替えてください。" :
+		nxStart ? `<b>${esc(signalLabel(st, nxStart.pos))}</b> を選択中。光っている<b>着点ボタン</b>を押すと進路が引けます（もう一度信号を押すと選択をやめます）。` :
+		"① 地図上の<b>信号てこ</b>（白枠の信号・四角の出発点）を押す → ② 光った<b>着点ボタン</b>（番線・出口）を押す と進路が引けます。ポイントは自動で転換されます。下の転てつてこで向きを固定すると、その向きの進路だけになります。設定中の進路は、同じ信号てこをもう一度押すと取り消せます。";
 }
 
 let checkPreview = null; // tiles highlighted while hovering a check row
@@ -1045,6 +1353,23 @@ function renderChecks(st) {
 		command(`dep_del,${st.id},${b.dataset.depdel}`, "仮想出発信号の解除 (" + b.dataset.depdel + ")"));
 }
 
+function renderNames(st) {
+	const box = document.getElementById("nameList");
+	if (!st) { box.innerHTML = ""; box.dataset.html = ""; return; }
+	const rows = [];
+	st.signals.forEach((s, i) => rows.push(["信号 S" + (i + 1), s.pos, "S" + (i + 1)]));
+	layout.groups.forEach((g, i) => rows.push(["番線", groupRep(g).p, (i + 1) + "番線"]));
+	(st.departures || []).forEach(d => rows.push(["仮想出発信号", d.pos, "（番線名＋出発）"]));
+	layout.exits.forEach((x, i) => rows.push(["出口", x.tile.p, "出口" + (i + 1)]));
+	layout.points.forEach((pt, i) => rows.push(["ポイント", pt.t.p, (21 + i) + "号"]));
+	const html = rows.map(([kind, pos, def]) => `<div class="namerow"><span>${kind} (${pos[0]},${pos[1]})</span><input data-name="${pos.join(",")}" placeholder="${esc(def)}" value="${esc(labelAt(st, pos) || "")}"></div>`).join("");
+	if (box.dataset.html === html || box.contains(document.activeElement)) return;
+	box.innerHTML = box.dataset.html = html;
+	for (const inp of box.querySelectorAll("input[data-name]")) inp.addEventListener("change", () => {
+		command(`name_set,${st.id},${inp.dataset.name},${inp.value.trim()}`, "名称の変更 " + (inp.value.trim() || "（自動）"));
+	});
+}
+
 function renderSetup() {
 	const st = station();
 	// halts
@@ -1073,6 +1398,7 @@ function renderSetup() {
 		if (document.activeElement !== inp) inp.value = v ?? "";
 	}
 	renderChecks(st);
+	renderNames(st);
 	// signals in the area
 	const sl = document.getElementById("sigList");
 	const sortMode = document.getElementById("sigSort").value;
@@ -1133,9 +1459,9 @@ function signalClicked(t, interlocked) {
 		toggleSignal(t, interlocked);
 		return;
 	}
-	// run tab: show only the levers of this signal
-	selectedSignal = selectedSignal === key(t.p) ? null : key(t.p);
-	render();
+	// run tab: interlocked signals are start levers
+	if (interlocked) { startClicked(t.p, false); return; }
+	toast("この信号は連動盤で扱っていません（設定タブで登録できます）", true);
 }
 
 function toggleSignal(t, on) {

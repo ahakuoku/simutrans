@@ -19,6 +19,7 @@
 #include "../simdebug.h"
 #include "../simworld.h"
 #include "../simconvoi.h"
+#include "../dataobj/schedule.h"
 #include "../simversion.h"
 #include "../player/simplay.h"
 #include "../pathes.h"
@@ -66,7 +67,7 @@ static vector_tpl<event_t> event_log;
 static uint32 event_seq = 0;
 
 // the tool keeps a pointer to its default_param, so it must stay valid
-static char tool_param[1024];
+static char tool_param[4096];
 
 
 // ---------------------------------------------------------------------------
@@ -314,7 +315,8 @@ static void handle_line(client_t &c, char *line)
 		bool first = true;
 		FOR(vector_tpl<convoihandle_t>, const cnv, world()->convoys()) {
 			const koord3d pos = cnv->get_pos();
-			answer.printf("%s{\"id\":%u,\"pos\":[%d,%d,%d],\"state\":%d,\"speed\":%d}", first ? "" : ",", cnv.get_id(), pos.x, pos.y, pos.z, cnv->get_state(), cnv->get_akt_speed());
+			answer.printf("%s{\"id\":%u,\"pos\":[%d,%d,%d],\"state\":%d,\"speed\":%d,\"stop\":%d}", first ? "" : ",", cnv.get_id(), pos.x, pos.y, pos.z, cnv->get_state(), cnv->get_akt_speed(),
+				cnv->get_schedule() ? (int)cnv->get_schedule()->get_current_stop() : -1);
 			first = false;
 		}
 		answer.append("]}");

@@ -34,6 +34,10 @@ struct il_route_t {
 	uint8 state;
 	/// admitted train (only valid in IL_OCCUPIED, not saved)
 	convoihandle_t convoy;
+	/// made on the panel with start lever + destination button; deleted when released
+	bool temp;
+
+	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false) {}
 };
 
 /**
@@ -56,6 +60,9 @@ struct il_station_t {
 	vector_tpl<koord3d> signals;
 	/// virtual departure signals
 	vector_tpl<il_departure_t *> departures;
+	/// names given on the panel (signals, platforms, points, exits), parallel vectors
+	vector_tpl<koord3d> label_pos;
+	vector_tpl<plainstring> label_names;
 
 	~il_station_t() { clear_ptr_vector(departures); }
 };
@@ -139,6 +146,10 @@ private:
 	/// replaces the route of the train from index start on and reserves it (shared by signals and departures)
 	bool admit_train(rail_vehicle_t *v, uint16 start, il_route_t *r, sint32 &restart_speed, uint16 reserve_from);
 	const char *cmd_cancel(il_route_t *r);
+	/// route from a tile list made on the panel (start lever + destination button)
+	const char *cmd_set_path(il_station_t *st, const char *path, const char *name);
+	/// deletes temporary routes that are no longer set or occupied
+	void purge_temp_routes();
 
 	/// breadth first search along the track from the start signal to the end tile
 	static bool find_path(koord3d start, koord3d end, vector_tpl<koord3d> &tiles);

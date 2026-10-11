@@ -165,9 +165,25 @@ def run(args):
         check(not res["ok"] and res.get("error") == "another route from this signal is set", f"route 2 refused while route 1 is set ({res.get('error')})")
         check(p.cmd(f"cancel,{r1['id']}")["ok"], "cancel route 1")
 
+        print("[2b] route made on the panel (start lever + destination button) and names")
+        path = ";".join(f"{x}:{y}:{z}" for x, y, z in r2["tiles"])
+        check(p.cmd(f"set_path,{sid},{path},S1 to 2")["ok"], "set a temporary route along platform 2")
+        tmp = [r for r in p.status()["routes"] if r.get("temp")]
+        check(len(tmp) == 1 and tmp[0]["state"] == "set" and tmp[0]["name"] == "S1 to 2", "temporary route is set")
+        res = p.cmd(f"set,{r1['id']}")
+        check(not res["ok"], f"predefined route refused while the temporary route is set ({res.get('error')})")
+        check(p.cmd(f"cancel,{tmp[0]['id']}")["ok"], "cancel the temporary route")
+        check(not [r for r in p.status()["routes"] if r.get("temp")], "temporary route deleted after cancel")
+        gap = ";".join(f"{x}:{y}:{z}" for x, y, z in r2["tiles"][:2] + r2["tiles"][3:])
+        check(not p.cmd(f"set_path,{sid},{gap},bad")["ok"], "a path with a gap is refused")
+        check(p.cmd(f"name_set,{sid},3,5,0,第1場内, west")["ok"], "rename S1")
+        lab = p.status()["stations"][0]["labels"]
+        check(lab == [{"pos": [3, 5, 0], "name": "第1場内, west"}], f"name stored: {lab}")
+
         print("[3] the train waits at S1")
         cid = p.request("debug_convoys")["convoys"][0]["id"]
-        sched = "0|0|0|2|0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|7,5,0,0,0,0,0,0,0,0,0,100,0,0|"
+        # first stop: A platform 1 (7,5); the operator will send the train to platform 2
+        sched = "0|0|0|2|0|7,5,0,0,0,0,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|"
         p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cid},{sched}")
         time.sleep(1)
         p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cid}")
@@ -194,6 +210,17 @@ def run(args):
         t.start()
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == r2["id"] and e["state"] == "occupied", 60)
         check(True, "train admitted into route 2 (state occupied)")
+        # the schedule says platform 1, the route goes to platform 2 of the same station: the train stops there
+        trace = []
+        def arrived_at_a():
+            c = p.request("debug_convoys")["convoys"][0]
+            trace.append((tuple(c["pos"]), c["state"], c["stop"]))
+            return c["stop"] == 1  # the schedule moved on: the stop at A is done
+        wait_until(arrived_at_a, 120, "train served A")
+        where = [t for t in trace if t[1] == 7] or trace[-1:]
+        print("    trace (pos, state, stop):", trace[-8:])
+        check(any(pos[1] == 6 and 6 <= pos[0] <= 8 for pos, state, stop in trace[-6:]),
+              f"train served A at platform 2 although the schedule says platform 1 (last positions {[t[0] for t in trace[-4:]]})")
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == r2["id"] and e["state"] == "idle", 120)
         check(True, "route 2 released automatically after the train passed")
         wait_until(lambda: any(pos[0] >= 13 for pos in seen), 120, "train reaches station B")
@@ -257,7 +284,7 @@ def run(args):
     try:
         p = Panel(PORT)
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
-        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]]) for st in sts]
+        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")
