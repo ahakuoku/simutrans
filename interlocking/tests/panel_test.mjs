@@ -90,6 +90,12 @@ try {
 	await page.click("#btnNewStation");
 	await waitFor(async () => (await getJson("/api/status")).stations.length === 1, 15000, "station created");
 	check(true, `station "${haltA.name}" created`);
+	await page.waitForFunction(() => document.getElementById("ownerInfo").textContent.startsWith("所有："), null, { timeout: 10000 });
+	check(true, "owner shown in the header: " + await page.textContent("#ownerInfo"));
+	// the game switches to another company: the panel says why commands are refused
+	await page.evaluate(() => { info = Object.assign({}, info, { player: 3 }); render(); });
+	check((await page.textContent("#ownerInfo")).includes("操作できません"), "company mismatch warned: " + await page.textContent("#ownerInfo"));
+	await page.evaluate(() => { info = Object.assign({}, info, { player: station().owner }); render(); });
 	await page.waitForSelector("#entryList .check");
 	// height filter: the bridge line at x=10 (height 1) crosses the station but is not connected
 	await page.waitForSelector("#viewbar button[data-z]");

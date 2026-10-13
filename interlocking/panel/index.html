@@ -79,6 +79,8 @@ aside h2:first-child { margin-top: 0; }
 }
 .lever .name { font-weight: 600; }
 .lever .sub { color: var(--muted); font-size: 12px; }
+.ownerinfo { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.ownerinfo.bad { color: #1a1a1a; background: var(--yellow); padding: 3px 10px; border-radius: 10px; font-weight: 600; white-space: normal; }
 .chip { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: #2f3846; color: var(--muted); white-space: nowrap; }
 .chip.set { background: #4d3d10; color: var(--locked); }
 .chip.occupied { background: #4f1c20; color: var(--occupied); }
@@ -143,6 +145,7 @@ svg text { font-family: inherit; }
 		<button data-mode="0">自動</button>
 		<button data-mode="1" class="manual">扱者</button>
 	</div>
+	<span id="ownerInfo" class="ownerinfo"></span>
 	<nav>
 		<button data-tab="run" class="on">運転</button>
 		<button data-tab="setup">設定</button>
@@ -305,7 +308,13 @@ const ERRORS = {
 	"click the platform end where trains leave": "列車が出ていく側のホームの端をクリックしてください",
 	"the path does not follow the track": "線路に沿っていない経路です",
 };
-const tr = (e) => ERRORS[e] || e;
+const tr = (e) => {
+	if (e === "not owner") {
+		const st = station();
+		if (st && info.player !== undefined) return `この駅は「${companyName(st.owner)}」の駅です。ゲームで操作中の会社（${companyName(info.player)}）を切り替えてください`;
+	}
+	return ERRORS[e] || e;
+};
 
 // ---------------------------------------------------------------------------
 // state
@@ -613,11 +622,14 @@ function renderViewbar() {
 	});
 }
 
+let infoTick = 0;
 async function loop() {
 	try {
 		await refreshStatus();
 		await pollEvents();
 		await refreshTracks();
+		// the company the game operates with (the player may switch companies in the game)
+		if (++infoTick % 4 === 0) { try { info = await api("/api/info"); } catch (e) {} }
 		setConnected(true);
 		render();
 	} catch (e) {
@@ -1233,6 +1245,12 @@ function renderHeader() {
 	if (sel.dataset.opts !== opts) { sel.innerHTML = opts || "<option>（連動駅なし）</option>"; sel.dataset.opts = opts; }
 	if (station()) sel.value = stationId;
 	const st = station();
+	// commands run as the company that is active in the game: it must own the station
+	const oi = document.getElementById("ownerInfo");
+	const mayOperate = !st || info.player === undefined || info.player === st.owner || info.player === 1;
+	oi.className = "ownerinfo" + (mayOperate ? "" : " bad");
+	oi.textContent = !st ? "" : mayOperate ? `所有：${companyName(st.owner)}` :
+		`⚠ ゲームで操作中の会社が「${companyName(info.player)}」です。この駅は「${companyName(st.owner)}」の駅なので操作できません。ゲームで会社を切り替えてください`;
 	for (const b of document.querySelectorAll("#modeBox button")) {
 		b.classList.toggle("on", !!st && (b.dataset.mode === "1") === st.manual);
 		b.disabled = !st;
