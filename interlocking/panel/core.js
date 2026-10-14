@@ -59,6 +59,7 @@ const ERRORS = {
 	"this side belongs to the other signal of the lever": "その側は、このてこのもう一方の信号です",
 	"the signal already has a lever pair": "その信号は、すでにほかの信号とまとめてあります",
 	"no lever pair": "まとめてあるてこではありません",
+	"another lever is waiting for its destination": "ほかの信号てこが着点待ちです。先に着点ボタンを押すか、そのてこを定位に戻してください",
 };
 const tr = (e) => {
 	if (e === "not owner") {

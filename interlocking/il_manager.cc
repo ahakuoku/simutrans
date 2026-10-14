@@ -29,7 +29,8 @@
 // 5: + kind (relay), operators, signal levers, point positions, timers
 // 6: + kind of virtual signals (departure / shunting), sidings in other stops
 // 7: + lever pairs (one lever for two signals)
-#define IL_SAVE_VERSION 7
+// 8: + side of signal levers set by hand
+#define IL_SAVE_VERSION 8
 
 // ticks per second of game time at normal speed (time multiplier 16: one tick per millisecond)
 #define IL_TICKS_PER_SECOND 1000
@@ -118,6 +119,17 @@ sint32 il_station_t::find_pair(koord3d pos) const
 
 
 /// removes the lever pairs with this start point (the signal is no longer registered)
+static void remove_side(il_station_t *st, koord3d pos)
+{
+	for(  uint32 i = st->side_pos.get_count();  i-- > 0;  ) {
+		if(  st->side_pos[i] == pos  ) {
+			st->side_pos.remove_at(i);
+			st->side_val.remove_at(i);
+		}
+	}
+}
+
+
 static void remove_pairs(il_station_t *st, koord3d pos)
 {
 	sint32 i;
@@ -484,6 +496,12 @@ const char *interlocking_manager_t::cmd_signal_lever(il_station_t *st, koord3d p
 				return "turn the lever back first";
 			}
 		}
+		// only one lever may wait for its destination button: the button belongs to that lever
+		FOR(vector_tpl<il_slever_t *>, o, st->slevers) {
+			if(  !o->used  ) {
+				return "another lever is waiting for its destination";
+			}
+		}
 		l = new il_slever_t();
 		l->pos = pos;
 		l->side = (uint8)side;
@@ -775,6 +793,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 			else {
 				remove_pairs(st, pos);
+				remove_side(st, pos);
 			}
 		}
 	}
@@ -835,6 +854,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 			else {
 				remove_pairs(st, existing->anchor);
+				remove_side(st, existing->anchor);
 				st->departures.remove(existing);
 				delete existing;
 			}
@@ -945,6 +965,31 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		else {
 			st->pair_left.append(pl);
 			st->pair_right.append(pr);
+		}
+	}
+	else if(  strcmp(cmd, "lv_side") == 0  &&  n >= 6  ) {
+		// the side a signal lever turns to: L / R, or A = decided by the panel
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		const char side = f[5][0];
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  !is_start_point(st, pos)  ) {
+			error = "start is not a registered signal of this station";
+		}
+		else if(  st->find_slever(pos)  ) {
+			error = "turn the lever back first";
+		}
+		else {
+			remove_side(st, pos);
+			if(  side == 'L'  ||  side == 'R'  ) {
+				st->side_pos.append(pos);
+				st->side_val.append((uint8)side);
+			}
 		}
 	}
 	else if(  strcmp(cmd, "lv_unpair") == 0  &&  n >= 5  ) {
@@ -1858,6 +1903,18 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 			rdwr_pos_vector(file, st->pair_left);
 			rdwr_pos_vector(file, st->pair_right);
 		}
+		if(  version >= 8  ) {
+			rdwr_pos_vector(file, st->side_pos);
+			uint32 sc = st->side_val.get_count();
+			file->rdwr_long(sc);
+			for(  uint32 j = 0;  j < sc;  j++  ) {
+				uint8 v = file->is_loading() ? 0 : st->side_val[j];
+				file->rdwr_byte(v);
+				if(  file->is_loading()  ) {
+					st->side_val.append(v);
+				}
+			}
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -1923,6 +1980,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 			st->pair_left[i].rotate90(y_size);
 			st->pair_right[i].rotate90(y_size);
 		}
+		for(  uint32 i = 0;  i < st->side_pos.get_count();  i++  ) {
+			st->side_pos[i].rotate90(y_size);
+		}
 		FOR(vector_tpl<il_point_t *>, pt, st->points) {
 			pt->pos.rotate90(y_size);
 			pt->a = ribi_t::rotate90(pt->a);
@@ -1977,6 +2037,12 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.append(",");
 			append_json_pos(buf, st->pair_right[i]);
 			buf.append("]");
+		}
+		buf.append("],\"sides\":[");
+		for(  uint32 i = 0;  i < st->side_pos.get_count();  i++  ) {
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, st->side_pos[i]);
+			buf.printf(",\"side\":\"%c\"}", st->side_val[i]);
 		}
 		buf.append("],\"slevers\":[");
 		for(  uint32 i = 0;  i < st->slevers.get_count();  i++  ) {

@@ -28,10 +28,40 @@ function leverSide(st, pos) {
 	// one lever for two signals: each signal has its side
 	const lp = (st.pairs || []).find(p => key(p[0]) === key(pos) || key(p[1]) === key(pos));
 	if (lp) return key(lp[0]) === key(pos) ? "L" : "R";
+	// set by hand in the setup tab
+	const hand = (st.sides || []).find(s => key(s.pos) === key(pos));
+	if (hand) return hand.side;
+	return autoLeverSide(st, pos);
+}
+// towards the direction of travel on the panel; a signal on a track drawn up or down turns
+// towards the side where its routes lead (e.g. a home signal below the station on the left)
+const autoSideCache = new Map();
+function autoLeverSide(st, pos) {
+	const ck = key(pos) + "|" + viewRot() + "|" + tracks.tiles.length;
+	if (autoSideCache.has(ck)) return autoSideCache.get(ck);
+	let side = "R";
 	const d = startTravelDir(st, pos);
-	if (!d) return "R";
-	const [vx, vy] = screenVec(d);
-	return vx < 0 ? "L" : vx > 0 ? "R" : vy < 0 ? "R" : "L";
+	const t = tileIndex.get(key(pos));
+	if (d && t) {
+		const [vx, vy] = screenVec(d);
+		if (vx) side = vx < 0 ? "L" : "R";
+		else {
+			// sideways drift of the track ahead (within the area of the station)
+			let sum = 0;
+			for (const [, n] of travel(t, 40, d)) {
+				if (stationTiles && !stationTiles.has(key(n.t.p))) continue;
+				sum += screenOffset(t.p, n.t.p);
+			}
+			side = sum < 0 ? "L" : sum > 0 ? "R" : vy < 0 ? "R" : "L";
+		}
+	}
+	autoSideCache.set(ck, side);
+	return side;
+}
+// horizontal distance on the (turned) panel from tile a to tile b
+function screenOffset(a, b) {
+	const dx = b[0] - a[0], dy = b[1] - a[1];
+	return [dx, -dy, -dx, dy][viewRot()];
 }
 
 // all signal levers of the station: interlocked signals, then virtual departure / shunting signals
@@ -122,18 +152,25 @@ function checkApproach(st) {
 // lever of a relay panel as on the real panels: a handle with a round top and a black number plate,
 // turning on a dark base (shapes in a 60 x 66 box, pivot at 30,40)
 function leverShapes(color, angle, no) {
+	// as the real knobs: a round body (number plate on its face) with a flat fin standing up from it
 	const txt = String(no ?? "");
-	const numColor = "#f4f4f4";
-	const edge = color === "#2b2f33" ? `stroke="#8a948d" stroke-opacity=".9"` : `stroke="#000" stroke-opacity=".45"`;
-	const fs = txt.length >= 3 ? 7.4 : 9.6;
-	return `<circle cx="30" cy="40" r="22" fill="#0d1210" stroke="#3b4a42" stroke-width="1.5"/>
-		<circle cx="30" cy="40" r="17" fill="#1a211d"/>
+	const fs = txt.length >= 3 ? 7 : 9;
+	const dark = color === "#2b2f33";
+	const side = dark ? "#15181b" : "rgba(0,0,0,.35)";
+	const edge = dark ? "#8a948d" : "rgba(0,0,0,.5)";
+	return `<circle cx="30" cy="40" r="23" fill="#0d1210" stroke="#3b4a42" stroke-width="1.5"/>
 		<g transform="rotate(${angle} 30 40)">
-			<path d="M17 46 V21 A13 13 0 0 1 43 21 V46 Q43 52 37 52 H23 Q17 52 17 46 Z" fill="${color}" ${edge} stroke-width="1"/>
-			<path d="M20.5 30 V21 A9.5 9.5 0 0 1 27 12" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>
-			<rect x="21" y="44" width="18" height="4" rx="2" fill="#000" opacity=".18"/>
-			<circle cx="30" cy="25" r="9.6" fill="#111" stroke="#efefef" stroke-width="1.6"/>
-			<text x="30" y="${25 + fs * .36}" font-size="${fs}" font-weight="700" text-anchor="middle" fill="${numColor}" font-family="Arial, sans-serif">${esc(txt)}</text>
+			<ellipse cx="30" cy="42.5" rx="15.5" ry="15" fill="#000" opacity=".35"/>
+			<path d="M24.5 31 L26 6.5 Q30 4.6 34 6.5 L35.5 31 Z" fill="${color}" stroke="${edge}" stroke-width=".9"/>
+			<path d="M34 6.5 L37.2 9 L38.6 31 L35.5 31 Z" fill="${color}"/>
+			<path d="M34 6.5 L37.2 9 L38.6 31 L35.5 31 Z" fill="${side}"/>
+			<path d="M27.4 10 L26.6 27" stroke="#fff" stroke-opacity=".35" stroke-width="1.6" stroke-linecap="round"/>
+			<circle cx="30" cy="40" r="15" fill="${color}" stroke="${edge}" stroke-width=".9"/>
+			<circle cx="30" cy="40" r="15" fill="${side}" opacity=".55"/>
+			<circle cx="29.2" cy="39" r="13" fill="${color}"/>
+			<path d="M19 35 A11.5 11.5 0 0 1 26 28" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="1.6" stroke-linecap="round"/>
+			<circle cx="29.2" cy="39" r="8.4" fill="#111" stroke="#efefef" stroke-width="1.4"/>
+			<text x="29.2" y="${39 + fs * .36}" font-size="${fs}" font-weight="700" text-anchor="middle" fill="#f4f4f4" font-family="Arial, sans-serif">${esc(txt)}</text>
 		</g>`;
 }
 // a lever on the board; label = small marks under it (e.g. "N C R")
@@ -306,6 +343,14 @@ function renderStationCfg() {
 			<label>転換 <input type="number" min="0" max="60" id="cfgTt" value="${st.t_throw}">秒</label>
 			<button id="cfgTimes">適用</button></div>
 			<p class="hint">秒数はゲーム内の時間（通常速度のとき）。早送り中は速く過ぎます。</p>
+		<div class="hint" style="margin-top:6px"><b>信号てこを倒す向き</b>：自動で決めた向きが盤の配線と合わないときに変えます（全員共通）。</div>
+		<div class="sidegrid">${signalLevers(st).filter(l => !l.pair).map(l => {
+			const hand = (st.sides || []).find(s => key(s.pos) === key(l.pos));
+			const v = hand ? hand.side : "A";
+			return `<label>${l.no} ${esc(signalLabel(st, l.pos))}<select data-lvside="${key(l.pos)}">
+				<option value="A" ${v === "A" ? "selected" : ""}>自動（${autoLeverSide(st, l.pos) === "L" ? "左" : "右"}）</option>
+				<option value="L" ${v === "L" ? "selected" : ""}>左</option><option value="R" ${v === "R" ? "selected" : ""}>右</option></select></label>`;
+		}).join("")}</div>
 		<div class="hint" style="margin-top:6px"><b>信号てこをまとめる</b>：1本のてこで、左に倒すと一方、右に倒すと他方の信号を扱います（例：上り出発・下り出発）。</div>
 		${(st.pairs || []).map(p => { const lv = leverOfPos(st, p[0]).lever; return `<div class="row"><span>${lv.no}L ${esc(signalLabel(st, p[0]))}　／　${lv.no}R ${esc(signalLabel(st, p[1]))}</span><button data-unpair="${key(p[0])}">解除</button></div>`; }).join("")}
 		${(() => {
@@ -325,6 +370,8 @@ function renderStationCfg() {
 		if (kind === 1 && !confirm("継電連動（上級者向け）に切り替えますか？\n信号てこをひねってから着点ボタンを押す扱いになり、転換時間・時素があります。ショートカットは使えなくなります。")) return;
 		command(cfgCommand(st, { kind }), kind ? "継電連動に切替" : "電子連動に切替");
 	});
+	for (const c of box.querySelectorAll("[data-lvside]")) c.addEventListener("change", () =>
+		command(`lv_side,${st.id},${c.dataset.lvside},${c.value}`, "てこを倒す向き"));
 	for (const b of box.querySelectorAll("[data-unpair]")) b.addEventListener("click", () => command(`lv_unpair,${st.id},${b.dataset.unpair}`, "てこのまとめを解除"));
 	const pa = box.querySelector("#pairAdd");
 	if (pa) pa.addEventListener("click", () => {

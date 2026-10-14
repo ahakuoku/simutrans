@@ -192,3 +192,6 @@ body.relay .cfgbox .kinds button.on { background: #2e6b45; border-color: #46c06b
 #map .mapknob .ring { fill: none; stroke: transparent; stroke-width: 2.5; }
 #map .mapknob.hl .ring { stroke: var(--accent); }
 #sigList .item:hover, [data-sigtoggle]:hover { border-color: var(--yellow); }
+.sidegrid { display: flex; flex-direction: column; gap: 3px; margin: 4px 0; }
+.sidegrid label { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
+.sidegrid select { padding: 1px 4px; font-size: 12px; }

@@ -122,6 +122,9 @@ struct il_station_t {
 	vector_tpl<koord3d> pair_left, pair_right;
 	/// index of the lever pair with this start point, -1 if none
 	sint32 find_pair(koord3d pos) const;
+	/// relay: side a signal lever turns to, set by hand (otherwise the panel decides): 'L' / 'R'
+	vector_tpl<koord3d> side_pos;
+	vector_tpl<uint8> side_val;
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }

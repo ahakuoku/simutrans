@@ -330,6 +330,16 @@ try {
 	await page.click("#relayBoard .rlever[data-stop] .knob");
 	await waitFor(async () => !(await stA()).all_stop, 10000, "all stop off");
 	check(true, "emergency stop lever off");
+	// the side a lever turns to can be set by hand
+	await page.click("nav button[data-tab=setup]");
+	await page.waitForSelector("#stationCfg [data-lvside='3,5,0']");
+	await page.selectOption("#stationCfg [data-lvside='3,5,0']", "L");
+	await waitFor(async () => ((await stA()).sides || []).some(s => s.pos.join(",") === "3,5,0" && s.side === "L"), 10000, "side by hand");
+	await page.click("nav button[data-tab=run]");
+	await page.waitForFunction(() => document.querySelector("#relayBoard .rlever[data-sl='3,5,0'] [data-side=L]") && !document.querySelector("#relayBoard .rlever[data-sl='3,5,0'] [data-side=L]").disabled, null, { timeout: 10000 });
+	check(true, "lever 1 set to turn to the left by hand (stored in the game)");
+	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "lv_side," + station().id + ",3,5,0,A" }));
+	await waitFor(async () => !((await stA()).sides || []).length, 10000, "side automatic");
 	// one lever for two signals: S1 on the left, the shunting signal of the siding on the right
 	await page.click("nav button[data-tab=setup]");
 	await page.waitForSelector("#pairAdd");
