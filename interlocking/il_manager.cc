@@ -1554,6 +1554,11 @@ bool interlocking_manager_t::build_train_route(rail_vehicle_t *v, uint16 next_bl
 			if(  haltestelle_t::get_halt(to->get_pos(), cnv->get_owner()) != end_halt  ) {
 				break;
 			}
+			// another train stands further in (a siding with trains one behind the other): stop behind it
+			const schiene_t *sch = get_rail(to->get_pos());
+			if(  sch  &&  sch->is_reserved()  &&  sch->get_reserved_convoi() != cnv->self  ) {
+				break;
+			}
 			out.append(to->get_pos());
 			gr = to;
 		}
