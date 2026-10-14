@@ -21,7 +21,14 @@ class rail_vehicle_t;
 enum il_route_state_t {
 	IL_IDLE     = 0, ///< not set (lever normal)
 	IL_SET      = 1, ///< set and locked, waiting for a train; the start signal clears when a train arrives
-	IL_OCCUPIED = 2  ///< a train has been admitted into the route
+	IL_OCCUPIED = 2, ///< a train has been admitted into the route
+	IL_RELEASING = 3 ///< cancelled while a train was approaching: still locked until the time release (時素) runs out
+};
+
+/// kind of the interlocking of a station (decides how the panel is operated)
+enum il_kind_t {
+	IL_ELECTRONIC = 0, ///< electronic: start lever + destination button, points move at once
+	IL_RELAY      = 1  ///< relay: rotary levers, throwing time of the points, approach locking with time release
 };
 
 /// one route from a start signal to an end tile
@@ -36,8 +43,12 @@ struct il_route_t {
 	convoihandle_t convoy;
 	/// made on the panel with start lever + destination button; deleted when released
 	bool temp;
+	/// relay: the signal may clear from this tick on (points still moving before)
+	uint32 ready_at;
+	/// IL_RELEASING: the route is released at this tick
+	uint32 release_at;
 
-	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false) {}
+	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false), ready_at(0), release_at(0) {}
 };
 
 /**
@@ -63,6 +74,20 @@ struct il_lever_t {
 	vector_tpl<uint8> pairs;          ///< allowed leg pairs, two ribi values each
 };
 
+/// relay: a signal lever turned to one side (stays there after the train has passed)
+struct il_slever_t {
+	koord3d pos;   ///< start point (signal or virtual departure)
+	uint8 side;    ///< 'L' or 'R' (as seen on the panel)
+	bool used;     ///< a route was set with this turn: turn it back before the next route
+};
+
+/// relay: position of a point (the leg pair it is set for) and the end of its throwing time
+struct il_point_t {
+	koord3d pos;
+	uint8 a, b;
+	uint32 moving_until;
+};
+
 /// one interlocked station (the unit of one panel)
 struct il_station_t {
 	uint16 id;
@@ -78,8 +103,21 @@ struct il_station_t {
 	vector_tpl<plainstring> label_names;
 	/// point lever positions (missing = automatic)
 	vector_tpl<il_lever_t *> levers;
+	/// further companies that may operate this station (besides the owner)
+	vector_tpl<uint8> operators;
+	uint8 kind;          ///< il_kind_t
+	uint8 rot;           ///< relay: orientation of the panel (quarter turns clockwise), the same for all operators
+	uint16 t_approach;   ///< relay: time release of the approach locking, main signals [s]
+	uint16 t_shunt;      ///< relay: time release for shunting signals [s]
+	uint16 t_throw;      ///< relay: throwing time of the points [s]
+	bool all_stop;       ///< emergency stop lever (一斉停止): no signal clears
+	vector_tpl<il_slever_t *> slevers;
+	vector_tpl<il_point_t *> points;
 
-	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); }
+	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
+	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }
+	il_slever_t *find_slever(koord3d pos) const;
+	il_point_t *find_point(koord3d pos) const;
 };
 
 /**
@@ -155,6 +193,16 @@ private:
 	/// same for a plain track without platform (siding, pull-out track): virtual shunting signal
 	static const char *siding_track(koord3d pos, vector_tpl<koord3d> &tiles, koord3d &anchor);
 	bool may_operate(const il_station_t *st, const player_t *player) const;
+	/// owner (or the public service): delete the station, change its companies and its kind
+	bool may_manage(const il_station_t *st, const player_t *player) const;
+	/// a train is approaching the start of the route (holds the signal tile or stands on the platform track)
+	bool train_approaching(const il_route_t *r) const;
+	/// relay: moves the points of the route into position; returns the tick when all are in place
+	uint32 throw_points(il_station_t *st, const il_route_t *r);
+	/// the start point of the route is a shunting signal (virtual shunting signal)
+	bool is_shunt_start(koord3d pos) const;
+	/// the signal of a set route may clear (relay: points in place; no emergency stop)
+	bool may_clear(const il_route_t *r) const;
 
 	void set_route_state(il_route_t *r, uint8 state);
 	void push_event(const char *json);
@@ -163,6 +211,8 @@ private:
 	/// replaces the route of the train from index start on and reserves it (shared by signals and departures)
 	bool admit_train(rail_vehicle_t *v, uint16 start, il_route_t *r, sint32 &restart_speed, uint16 reserve_from);
 	const char *cmd_cancel(il_route_t *r);
+	/// relay: turns a signal lever to 'L', 'R' or back to normal ('N')
+	const char *cmd_signal_lever(il_station_t *st, koord3d pos, char side);
 	/// route from a tile list made on the panel (start lever + destination button)
 	const char *cmd_set_path(il_station_t *st, const char *path, const char *name);
 	/// deletes temporary routes that are no longer set or occupied

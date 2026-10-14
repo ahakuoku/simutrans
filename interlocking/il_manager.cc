@@ -26,7 +26,11 @@
 
 // version of the interlocking data block in the savegame (independent of the OTRP version)
 // 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names  4: + point levers
-#define IL_SAVE_VERSION 4
+// 5: + kind (relay), operators, signal levers, point positions, timers
+#define IL_SAVE_VERSION 5
+
+// ticks per second of game time at normal speed (time multiplier 16: one tick per millisecond)
+#define IL_TICKS_PER_SECOND 1000
 
 // maximum number of tiles searched when defining a route
 #define IL_MAX_SEARCH_NODES 4096
@@ -68,8 +72,46 @@ static const char *state_name(uint8 state)
 	switch(  state  ) {
 		case IL_SET:      return "set";
 		case IL_OCCUPIED: return "occupied";
+		case IL_RELEASING: return "releasing";
 		default:          return "idle";
 	}
+}
+
+
+/// t has been reached (tick counter may wrap)
+static bool tick_reached(uint32 t)
+{
+	return (sint32)(world()->get_ticks() - t) >= 0;
+}
+
+
+/// seconds left until t (0 if reached)
+static uint32 seconds_left(uint32 t)
+{
+	const sint32 d = (sint32)(t - world()->get_ticks());
+	return d <= 0 ? 0 : (uint32)((d + IL_TICKS_PER_SECOND - 1) / IL_TICKS_PER_SECOND);
+}
+
+
+il_slever_t *il_station_t::find_slever(koord3d pos) const
+{
+	FOR(vector_tpl<il_slever_t *>, l, slevers) {
+		if(  l->pos == pos  ) {
+			return l;
+		}
+	}
+	return NULL;
+}
+
+
+il_point_t *il_station_t::find_point(koord3d pos) const
+{
+	FOR(vector_tpl<il_point_t *>, p, points) {
+		if(  p->pos == pos  ) {
+			return p;
+		}
+	}
+	return NULL;
 }
 
 
@@ -283,8 +325,129 @@ const char *interlocking_manager_t::siding_track(koord3d pos, vector_tpl<koord3d
 
 bool interlocking_manager_t::may_operate(const il_station_t *st, const player_t *player) const
 {
+	if(  player  &&  st->operators.is_contained(player->get_player_nr())  ) {
+		return true;
+	}
+	return may_manage(st, player);
+}
+
+
+bool interlocking_manager_t::may_manage(const il_station_t *st, const player_t *player) const
+{
 	return player_t::check_owner(world()->get_player(st->owner), player);
 }
+
+
+bool interlocking_manager_t::is_shunt_start(koord3d pos) const
+{
+	if(  find_departure_anchor(pos) == NULL  ) {
+		return false;
+	}
+	const grund_t *gr = world()->lookup(pos);
+	return gr  &&  !gr->get_halt().is_bound();
+}
+
+
+bool interlocking_manager_t::train_approaching(const il_route_t *r) const
+{
+	il_departure_t *dep = NULL;
+	if(  find_departure_anchor(r->tiles[0], &dep)  ) {
+		// virtual departure / shunting signal: a train on the platform track (siding)
+		FOR(vector_tpl<koord3d>, const &t, dep->tiles) {
+			const schiene_t *sch = get_rail(t);
+			if(  sch  &&  sch->is_reserved()  ) {
+				return true;
+			}
+		}
+		return false;
+	}
+	// a train in the block in rear of the signal reserves up to the signal tile
+	const schiene_t *sch = get_rail(r->tiles[0]);
+	return sch  &&  sch->is_reserved();
+}
+
+
+uint32 interlocking_manager_t::throw_points(il_station_t *st, const il_route_t *r)
+{
+	const uint32 now = world()->get_ticks();
+	uint32 ready = now;
+	for(  uint32 i = 1;  i + 1 < r->tiles.get_count();  i++  ) {
+		const schiene_t *sch = get_rail(r->tiles[i]);
+		if(  sch == NULL  ||  !ribi_t::is_threeway(sch->get_ribi_unmasked())  ) {
+			continue;
+		}
+		const uint8 a = ribi_type(r->tiles[i], r->tiles[i - 1]);
+		const uint8 b = ribi_type(r->tiles[i], r->tiles[i + 1]);
+		il_point_t *pt = st->find_point(r->tiles[i]);
+		if(  pt == NULL  ) {
+			pt = new il_point_t();
+			pt->pos = r->tiles[i];
+			pt->a = pt->b = 0;
+			pt->moving_until = now;
+			st->points.append(pt);
+		}
+		if(  !((pt->a == a  &&  pt->b == b)  ||  (pt->a == b  &&  pt->b == a))  ) {
+			pt->a = a;
+			pt->b = b;
+			pt->moving_until = now + st->t_throw * IL_TICKS_PER_SECOND;
+		}
+		if(  !tick_reached(pt->moving_until)  &&  (sint32)(pt->moving_until - ready) > 0  ) {
+			ready = pt->moving_until;
+		}
+	}
+	return ready;
+}
+
+
+bool interlocking_manager_t::may_clear(const il_route_t *r) const
+{
+	const il_station_t *st = find_station(r->station);
+	if(  st == NULL  ) {
+		return true;
+	}
+	if(  st->all_stop  ) {
+		return false;
+	}
+	return st->kind != IL_RELAY  ||  tick_reached(r->ready_at);
+}
+
+
+const char *interlocking_manager_t::cmd_signal_lever(il_station_t *st, koord3d pos, char side)
+{
+	if(  st->kind != IL_RELAY  ) {
+		return "only on a relay panel";
+	}
+	if(  !is_start_point(st, pos)  ) {
+		return "start is not a registered signal of this station";
+	}
+	il_slever_t *l = st->find_slever(pos);
+	if(  side == 'L'  ||  side == 'R'  ) {
+		if(  !st->manual  ) {
+			return "station is in automatic mode";
+		}
+		if(  l  ) {
+			return l->side == side ? NULL : "turn the lever back first";
+		}
+		l = new il_slever_t();
+		l->pos = pos;
+		l->side = (uint8)side;
+		l->used = false;
+		st->slevers.append(l);
+		return NULL;
+	}
+	// back to normal: a route that is set is cancelled (with approach locking)
+	FOR(vector_tpl<il_route_t *>, r, routes) {
+		if(  r->tiles[0] == pos  &&  r->state == IL_SET  ) {
+			cmd_cancel(r);
+		}
+	}
+	if(  l  ) {
+		st->slevers.remove(l);
+		delete l;
+	}
+	return NULL;
+}
+
 
 
 void interlocking_manager_t::push_event(const char *json)
@@ -491,7 +654,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		if(  st == NULL  ) {
 			error = "unknown station";
 		}
-		else if(  !may_operate(st, player)  ) {
+		else if(  !may_manage(st, player)  ) {
 			error = "not owner";
 		}
 		else {
@@ -516,12 +679,13 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		else {
 			st->manual = atoi(f[2]) != 0;
 			if(  !st->manual  ) {
-				// back to automatic: all routes waiting for a train are cancelled
+				// back to automatic: all routes waiting for a train are cancelled, the levers go back
 				FOR(vector_tpl<il_route_t *>, r, routes) {
-					if(  r->station == st->id  &&  r->state == IL_SET  ) {
+					if(  r->station == st->id  &&  (r->state == IL_SET  ||  r->state == IL_RELEASING)  ) {
 						set_route_state(r, IL_IDLE);
 					}
 				}
+				clear_ptr_vector(st->slevers);
 			}
 			cbuffer_t ev;
 			ev.printf("{\"type\":\"mode\",\"station\":%u,\"manual\":%s}", st->id, st->manual ? "true" : "false");
@@ -587,6 +751,90 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 				st->departures.remove(existing);
 				delete existing;
 			}
+		}
+	}
+	else if(  strcmp(cmd, "st_cfg") == 0  &&  n >= 7  ) {
+		// kind, panel orientation, time releases and throwing time
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const uint8 kind = (uint8)atoi(f[2]);
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_manage(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  kind > IL_RELAY  ) {
+			error = "bad setting";
+		}
+		else {
+			if(  kind != st->kind  ) {
+				FOR(vector_tpl<il_route_t *>, r, routes) {
+					if(  r->station == st->id  &&  r->state != IL_IDLE  ) {
+						error = "release all routes first";
+					}
+				}
+			}
+			if(  !error  ) {
+				st->kind = kind;
+				st->rot = (uint8)(atoi(f[3]) & 3);
+				st->t_approach = (uint16)clamp(atoi(f[4]), 0, 600);
+				st->t_shunt = (uint16)clamp(atoi(f[5]), 0, 600);
+				st->t_throw = (uint16)clamp(atoi(f[6]), 0, 60);
+				if(  kind != IL_RELAY  ) {
+					clear_ptr_vector(st->slevers);
+					clear_ptr_vector(st->points);
+				}
+			}
+		}
+	}
+	else if(  strcmp(cmd, "st_ops") == 0  &&  n >= 2  ) {
+		// further companies that may operate the station: "nr.nr.nr" (empty = owner only)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_manage(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			st->operators.clear();
+			for(  const char *q = n >= 3 ? f[2] : "";  *q;  ) {
+				const int nr = atoi(q);
+				if(  nr >= 0  &&  nr < MAX_PLAYER_COUNT  &&  nr != st->owner  &&  !st->operators.is_contained((uint8)nr)  ) {
+					st->operators.append((uint8)nr);
+				}
+				while(  *q  &&  *q != '.'  ) {
+					q++;
+				}
+				if(  *q  ) {
+					q++;
+				}
+			}
+		}
+	}
+	else if(  strcmp(cmd, "st_stop") == 0  &&  n >= 3  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			st->all_stop = atoi(f[2]) != 0;
+		}
+	}
+	else if(  strcmp(cmd, "sl_turn") == 0  &&  n >= 6  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			error = cmd_signal_lever(st, pos, f[5][0]);
 		}
 	}
 	else if(  strcmp(cmd, "set_path") == 0  &&  n >= 3  ) {
@@ -716,7 +964,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = "not owner";
 		}
 		else if(  cmd[0] == 's'  ) {
-			error = st->manual ? cmd_set(r) : "station is in automatic mode";
+			error = !st->manual ? "station is in automatic mode" : st->kind == IL_RELAY ? "use the levers on a relay panel" : cmd_set(r);
 		}
 		else {
 			error = cmd_cancel(r);
@@ -750,7 +998,7 @@ const char *interlocking_manager_t::cmd_set(il_route_t *r)
 	}
 	// conflicting routes: any other route that is set and shares a tile
 	FOR(vector_tpl<il_route_t *>, o, routes) {
-		if(  o == r  ||  o->state != IL_SET  ) {
+		if(  o == r  ||  (o->state != IL_SET  &&  o->state != IL_RELEASING)  ) {
 			continue;
 		}
 		if(  o->tiles[0] == r->tiles[0]  ) {
@@ -790,6 +1038,19 @@ const char *interlocking_manager_t::cmd_cancel(il_route_t *r)
 	}
 	if(  r->state == IL_IDLE  ) {
 		return "route is not set";
+	}
+	if(  r->state == IL_RELEASING  ) {
+		return NULL; // the time release is running already
+	}
+	il_station_t *st = find_station(r->station);
+	if(  st  &&  st->kind == IL_RELAY  &&  train_approaching(r)  ) {
+		// approach locking: the route stays locked until the time release runs out
+		const uint16 t = is_shunt_start(r->tiles[0]) ? st->t_shunt : st->t_approach;
+		if(  t > 0  ) {
+			r->release_at = world()->get_ticks() + t * IL_TICKS_PER_SECOND;
+			set_route_state(r, IL_RELEASING);
+			return NULL;
+		}
 	}
 	set_route_state(r, IL_IDLE);
 	return NULL;
@@ -881,6 +1142,27 @@ const char *interlocking_manager_t::cmd_points(il_station_t *st, const char *spe
 			}
 			if(  lv->value.c_str()  &&  *lv->value.c_str()  &&  !lv->pairs.empty()  ) {
 				st->levers.append(lv);
+				if(  st->kind == IL_RELAY  ) {
+					// the point moves into the position of the lever (throwing time)
+					il_point_t *pt = st->find_point(lv->pos);
+					if(  pt == NULL  ) {
+						pt = new il_point_t();
+						pt->pos = lv->pos;
+						pt->a = pt->b = 0;
+						st->points.append(pt);
+					}
+					bool in_place = false;
+					for(  uint32 j = 0;  j + 1 < lv->pairs.get_count();  j += 2  ) {
+						if(  (pt->a == lv->pairs[j]  &&  pt->b == lv->pairs[j + 1])  ||  (pt->b == lv->pairs[j]  &&  pt->a == lv->pairs[j + 1])  ) {
+							in_place = true;
+						}
+					}
+					if(  !in_place  ) {
+						pt->a = lv->pairs[0];
+						pt->b = lv->pairs[1];
+						pt->moving_until = world()->get_ticks() + st->t_throw * IL_TICKS_PER_SECOND;
+					}
+				}
 			}
 			else {
 				delete lv; // automatic
@@ -940,6 +1222,17 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 	if(  !is_start_point(st, tiles[0])  ) {
 		return "start is not a registered signal of this station";
 	}
+	il_slever_t *lever = NULL;
+	if(  st->kind == IL_RELAY  ) {
+		// relay: the signal lever has to be turned first, once per route
+		lever = st->find_slever(tiles[0]);
+		if(  lever == NULL  ) {
+			return "turn the signal lever first";
+		}
+		if(  lever->used  ) {
+			return "turn the lever back first";
+		}
+	}
 	// the path must follow the track in the direction of travel
 	ribi_t::ribi prev = ribi_t::none;
 	for(  uint32 i = 0;  i + 1 < tiles.get_count();  i++  ) {
@@ -972,6 +1265,10 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 	if(  error  ) {
 		routes.remove(r);
 		delete r;
+	}
+	else if(  lever  ) {
+		lever->used = true;
+		r->ready_at = throw_points(st, r);
 	}
 	return error;
 }
@@ -1090,6 +1387,13 @@ bool interlocking_manager_t::on_signal(rail_vehicle_t *v, uint16 next_block, sin
 		return true;
 	}
 
+	if(  r->state == IL_SET  &&  !may_clear(r)  ) {
+		// relay: the points are still moving, or the emergency stop lever is on
+		sig->set_state(roadsign_t::STATE_RED);
+		restart_speed = 0;
+		result = false;
+		return true;
+	}
 	if(  r->state == IL_SET  &&  !cnv->is_waiting()  &&  !call_by_step  ) {
 		// like the choose signal (OTRP v51+): the route search may only run in a step,
 		// not in a sync_step. Stop at the signal and let the convoy check again in its step.
@@ -1195,6 +1499,11 @@ bool interlocking_manager_t::on_departure(rail_vehicle_t *v, sint32 &restart_spe
 		// already admitted: the core reserves as usual
 		return false;
 	}
+	if(  !may_clear(r)  ) {
+		restart_speed = 0;
+		result = false;
+		return true;
+	}
 	result = admit_train(v, k, r, restart_speed, from);
 	return true;
 }
@@ -1207,6 +1516,10 @@ bool interlocking_manager_t::on_departure(rail_vehicle_t *v, sint32 &restart_spe
 void interlocking_manager_t::step()
 {
 	FOR(vector_tpl<il_route_t *>, r, routes) {
+		if(  r->state == IL_RELEASING  &&  tick_reached(r->release_at)  ) {
+			set_route_state(r, IL_IDLE); // time release (時素) has run out
+			continue;
+		}
 		if(  r->state != IL_OCCUPIED  ) {
 			continue;
 		}
@@ -1315,6 +1628,46 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 				}
 			}
 		}
+		if(  version >= 5  ) {
+			file->rdwr_byte(st->kind);
+			file->rdwr_byte(st->rot);
+			file->rdwr_short(st->t_approach);
+			file->rdwr_short(st->t_shunt);
+			file->rdwr_short(st->t_throw);
+			file->rdwr_bool(st->all_stop);
+			uint32 oc = st->operators.get_count();
+			file->rdwr_long(oc);
+			for(  uint32 j = 0;  j < oc;  j++  ) {
+				uint8 nr = file->is_loading() ? 0 : st->operators[j];
+				file->rdwr_byte(nr);
+				if(  file->is_loading()  ) {
+					st->operators.append(nr);
+				}
+			}
+			uint32 sc = st->slevers.get_count();
+			file->rdwr_long(sc);
+			for(  uint32 j = 0;  j < sc;  j++  ) {
+				il_slever_t *l = file->is_loading() ? new il_slever_t() : st->slevers[j];
+				l->pos.rdwr(file);
+				file->rdwr_byte(l->side);
+				file->rdwr_bool(l->used);
+				if(  file->is_loading()  ) {
+					st->slevers.append(l);
+				}
+			}
+			uint32 pc = st->points.get_count();
+			file->rdwr_long(pc);
+			for(  uint32 j = 0;  j < pc;  j++  ) {
+				il_point_t *pt = file->is_loading() ? new il_point_t() : st->points[j];
+				pt->pos.rdwr(file);
+				file->rdwr_byte(pt->a);
+				file->rdwr_byte(pt->b);
+				file->rdwr_long(pt->moving_until);
+				if(  file->is_loading()  ) {
+					st->points.append(pt);
+				}
+			}
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -1331,6 +1684,10 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 		rdwr_pos_vector(file, r->tiles);
 		if(  version >= 3  ) {
 			file->rdwr_bool(r->temp);
+		}
+		if(  version >= 5  ) {
+			file->rdwr_long(r->ready_at);
+			file->rdwr_long(r->release_at);
 		}
 		if(  file->is_loading()  ) {
 			r->convoy = convoihandle_t();
@@ -1366,6 +1723,16 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 				lv->value = tmp;
 			}
 		}
+		FOR(vector_tpl<il_slever_t *>, l, st->slevers) {
+			l->pos.rotate90(y_size);
+		}
+		FOR(vector_tpl<il_point_t *>, pt, st->points) {
+			pt->pos.rotate90(y_size);
+			pt->a = ribi_t::rotate90(pt->a);
+			pt->b = ribi_t::rotate90(pt->b);
+		}
+		// the map turns clockwise: turn the relay panel back, so that it looks the same as before
+		st->rot = (st->rot + 3) & 3;
 		FOR(vector_tpl<il_departure_t *>, d, st->departures) {
 			d->anchor.rotate90(y_size);
 			for(  uint32 i = 0;  i < d->tiles.get_count();  i++  ) {
@@ -1395,7 +1762,26 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		first = false;
 		buf.printf("{\"id\":%u,\"name\":", st->id);
 		append_json_string(buf, st->name.c_str());
-		buf.printf(",\"owner\":%u,\"manual\":%s,\"signals\":[", st->owner, st->manual ? "true" : "false");
+		buf.printf(",\"owner\":%u,\"manual\":%s", st->owner, st->manual ? "true" : "false");
+		buf.printf(",\"kind\":\"%s\",\"rot\":%u,\"t_approach\":%u,\"t_shunt\":%u,\"t_throw\":%u,\"all_stop\":%s,\"operators\":[",
+			st->kind == IL_RELAY ? "relay" : "electronic", st->rot, st->t_approach, st->t_shunt, st->t_throw, st->all_stop ? "true" : "false");
+		for(  uint32 i = 0;  i < st->operators.get_count();  i++  ) {
+			buf.printf("%s%u", i ? "," : "", st->operators[i]);
+		}
+		buf.append("],\"slevers\":[");
+		for(  uint32 i = 0;  i < st->slevers.get_count();  i++  ) {
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, st->slevers[i]->pos);
+			buf.printf(",\"side\":\"%c\",\"used\":%s}", st->slevers[i]->side, st->slevers[i]->used ? "true" : "false");
+		}
+		buf.append("],\"points\":[");
+		for(  uint32 i = 0;  i < st->points.get_count();  i++  ) {
+			const il_point_t *pt = st->points[i];
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, pt->pos);
+			buf.printf(",\"pair\":[%u,%u],\"moving\":%u}", pt->a, pt->b, seconds_left(pt->moving_until));
+		}
+		buf.append("],\"signals\":[");
 		for(  uint32 i = 0;  i < st->signals.get_count();  i++  ) {
 			const koord3d pos = st->signals[i];
 			signal_t *sig = get_signal(pos);
@@ -1471,7 +1857,14 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		first = false;
 		buf.printf("{\"id\":%u,\"station\":%u,\"name\":", r->id, r->station);
 		append_json_string(buf, r->name.c_str());
-		buf.printf(",\"state\":\"%s\",\"temp\":%s,\"start\":", state_name(r->state), r->temp ? "true" : "false");
+		buf.printf(",\"state\":\"%s\",\"temp\":%s", state_name(r->state), r->temp ? "true" : "false");
+		if(  r->state == IL_SET  &&  !may_clear(r)  ) {
+			buf.printf(",\"waiting\":%u", max(seconds_left(r->ready_at), (uint32)1)); // points moving / emergency stop
+		}
+		if(  r->state == IL_RELEASING  ) {
+			buf.printf(",\"release_in\":%u", seconds_left(r->release_at));
+		}
+		buf.append(",\"start\":");
 		append_json_pos(buf, r->tiles[0]);
 		buf.append(",\"end\":");
 		append_json_pos(buf, r->tiles.back());

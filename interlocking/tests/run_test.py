@@ -300,6 +300,70 @@ def run(args):
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == rs["id"] and e["state"] == "idle", 120)
         check(True, "shunting route released automatically")
 
+        print("[4d] relay interlocking: signal levers, throwing time, approach locking, emergency stop")
+        def train_in_siding():
+            st = p.status()["stations"][0]
+            c = p.request("debug_convoys")["convoys"][0]
+            return st["departures"][0].get("train") and c["stop"] == 1 and c["pos"][1] >= 7
+        wait_until(train_in_siding, 120, "train back in the siding")
+        check(p.cmd(f"st_cfg,{sid},1,1,5,3,4")["ok"], "station A switched to relay (approach 5 s, shunting 3 s, throwing 4 s)")
+        sa = p.status()["stations"][0]
+        check(sa["kind"] == "relay" and sa["rot"] == 1 and sa["t_throw"] == 4, f"relay settings stored: {sa['kind']} rot {sa['rot']}")
+        check(p.cmd(f"st_ops,{sid},3.4")["ok"] and p.status()["stations"][0]["operators"] == [3, 4], "further companies may operate the station")
+        res = p.cmd(f"set,{rs['id']}")
+        check(not res["ok"] and res["error"] == "use the levers on a relay panel", f"shortcuts refused on a relay panel ({res.get('error')})")
+        spath = ";".join(f"{x}:{y}:{z}" for x, y, z in rs["tiles"])
+        res = p.cmd(f"set_path,{sid},{spath},入換")
+        check(not res["ok"] and res["error"] == "turn the signal lever first", f"no route without turning the lever ({res.get('error')})")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,L")["ok"], "shunting lever turned to the left")
+        res = p.cmd(f"sl_turn,{sid},5,7,0,R")
+        check(not res["ok"] and res["error"] == "turn the lever back first", "lever cannot be turned to the other side directly")
+        # approach locking: cancel while the train stands in the siding
+        check(p.cmd(f"set_path,{sid},{spath},入換")["ok"], "destination button: route set")
+        tr = [r for r in p.status()["routes"] if r.get("temp")][0]
+        pts = {tuple(x["pos"]): x for x in p.status()["stations"][0]["points"]}
+        check(tr["state"] == "set" and tr.get("waiting", 0) > 0 and pts.get((5, 6, 0), {}).get("moving", 0) > 0,
+              f"points are moving, the signal waits ({tr.get('waiting')} s)")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"], "lever back to normal while the train is approaching")
+        tr = [r for r in p.status()["routes"] if r["id"] == tr["id"]][0]
+        check(tr["state"] == "releasing" and tr.get("release_in", 0) > 0, f"approach locking: time release runs ({tr.get('release_in')} s)")
+        res = p.cmd(f"pt_set,{sid},5:6:0/N/8-2")
+        check(not res["ok"] and res["error"] == "the point is locked", "point locked during the time release")
+        t0 = time.time()
+        wait_until(lambda: not any(r["id"] == tr["id"] for r in p.status()["routes"]), 30, "time release")
+        check(time.time() - t0 >= 1.5, f"route released after the time release ({time.time() - t0:.1f} s)")
+        check(p.request("debug_convoys")["convoys"][0]["pos"][1] >= 7, "train still in the siding")
+        # emergency stop: the route is set, but the signal does not clear
+        check(p.cmd(f"st_stop,{sid},1")["ok"], "emergency stop lever on")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,L")["ok"] and p.cmd(f"set_path,{sid},{spath},入換")["ok"], "lever turned again, route set")
+        t_set = time.time()
+        time.sleep(7)
+        tr = [r for r in p.status()["routes"] if r.get("temp")][0]
+        check(tr["state"] == "set" and p.request("debug_convoys")["convoys"][0]["pos"][1] >= 7, "emergency stop: the train does not leave")
+        check(p.cmd(f"st_stop,{sid},0")["ok"], "emergency stop lever off")
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "occupied", 60)
+        check(True, "train admitted after the emergency stop was released")
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "idle", 120)
+        lev = p.status()["stations"][0]["slevers"]
+        check(lev == [{"pos": [5, 7, 0], "side": "L", "used": True}], f"the lever stays turned after the train has passed: {lev}")
+        res = p.cmd(f"set_path,{sid},{spath},入換")
+        check(not res["ok"] and res["error"] == "turn the lever back first", "no second route before the lever is turned back")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"] and not p.status()["stations"][0]["slevers"], "lever turned back")
+        # throwing time: the train is admitted only after the points are in place
+        wait_until(train_in_siding, 120, "train back in the siding again")
+        check(p.cmd(f"pt_set,{sid},5:6:0/R/8-4")["ok"], "point 24 fixed against the route (to the west)")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,L")["ok"], "lever turned")
+        res = p.cmd(f"set_path,{sid},{spath},入換")
+        check(not res["ok"] and res["error"] == "a point is set against the route", "route refused by the point lever")
+        check(p.cmd(f"pt_set,{sid},5:6:0//")["ok"], "point lever back to C (automatic)")
+        check(p.cmd(f"set_path,{sid},{spath},入換")["ok"], "route set")
+        t_set = time.time()
+        tr = [r for r in p.status()["routes"] if r.get("temp")][0]
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "occupied", 60)
+        check(time.time() - t_set >= 2.5, f"admitted only after the throwing time ({time.time() - t_set:.1f} s)")
+        p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "idle", 120)
+        check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"], "lever turned back")
+
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
         before = p.status()
@@ -338,7 +402,8 @@ def run(args):
     try:
         p = Panel(PORT)
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
-        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"]) for st in sts]
+        strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
+                                 st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")
