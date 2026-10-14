@@ -191,10 +191,16 @@ v60 でこれらの名前や引数が変わっていたら、`interlocking/` 側
 
 ## テスト
 
-自動テストは 2 つある。どちらもヘッドレス版のゲームを起動して使う。
+自動テストはヘッドレス版のゲームを起動して使う。
 
-- `run_test.py`（Python）: 連動装置の動作（行単位プロトコル）
-- `panel_test.mjs`（Node.js + Playwright）: Web 盤を実際のブラウザで操作する
+- `run_test.py`（Python）: 連動装置の動作（行単位プロトコル）。シナリオ il-test
+- `panel_test.mjs`（Node.js + Playwright）: Web 盤を実際のブラウザで操作する。シナリオ il-test
+- `pass_test.py`: 通過列車。`tandem_test.py [--relay] [--lever G|P]`: 縦列停車。`panel_tandem_test.mjs`: 盤の「手前」の着点。
+  この 3 つはシナリオ il-tandem（作業ディレクトリの `pak64/scenario/il-tandem` を `interlocking/tests/il-tandem` へのリンクにする）
+
+選択信号の処理のほか、**`convoi_t` の到着（経路の終わりに着くと到着扱い）**と
+**`rail_vehicle_t::block_reserver()` がマス単位で予約すること**を前提にしている（縦列停車・同じ駅の別番線への停車）。
+OTRP 側でここが変わったら tandem_test.py で確認する。
 
 ```sh
 NODE_PATH=$(npm root -g) node interlocking/tests/panel_test.mjs build/default/sim <作業ディレクトリ> <スクリーンショットの保存先>
