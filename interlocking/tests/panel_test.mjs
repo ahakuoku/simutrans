@@ -153,12 +153,24 @@ try {
 	await waitFor(async () => (await getJson("/api/status")).stations[0].departures.length === 0, 15000, "virtual departure removed");
 	check(true, "virtual departure signal removed again");
 	// siding (5,7)-(5,8): virtual shunting signal
-	const sidRows = await page.$$eval("#sidingList .check", cs => cs.map(c => c.textContent));
+	const sidRows = await page.$$eval("#sidingList .check[data-prev]", cs => cs.map(c => c.textContent));
 	check(sidRows.length === 1 && sidRows[0].includes("留置1") && sidRows[0].includes("行き止まり"), "siding found: " + sidRows.join(" / "));
 	await page.locator("#sidingList button", { hasText: "仮想入換信号にする" }).click();
 	await waitFor(async () => (await getJson("/api/status")).stations[0].departures.some(d => d.shunt && d.pos.join(",") === "5,7,0"), 15000, "shunting signal registered");
 	await page.waitForSelector("#sidingList .check.ok");
 	check(true, "virtual shunting signal registered from the siding list (leaves at (5,7))");
+	// a stop next to the station used as a siding (駅属性の留置線)
+	const sidHalt = (await getJson("/api/halts")).halts.find(h => h.tiles.some(t => t.join(",") === "12,8,0" || t.join(",") === "12,8"));
+	check(!!sidHalt, "the stop at (12,8) exists: " + (sidHalt && sidHalt.name));
+	await page.waitForSelector(`#sidingList [data-sidhalt='${sidHalt.id}']`);
+	await page.check(`#sidingList [data-sidhalt='${sidHalt.id}']`);
+	await waitFor(async () => ((await getJson("/api/status")).stations[0].siding_halts || []).length === 1, 10000, "siding stop");
+	await page.waitForFunction(() => [...document.querySelectorAll("#sidingList .check[data-prev]")].some(c => c.textContent.includes("駅") && c.textContent.includes("行き止まり")), null, { timeout: 10000 });
+	check(true, "stop (12,8) used as a siding: listed with its tracks");
+	await page.locator("#sidingList .check[data-prev]", { hasText: "駅" }).locator("button", { hasText: "仮想入換信号にする" }).click();
+	await waitFor(async () => (await getJson("/api/status")).stations[0].departures.some(d => d.shunt && d.pos.join(",") === "12,8,0"), 10000, "shunting signal in the stop")
+		.catch(async (e) => { console.log("  log:", await page.textContent("#log"), JSON.stringify((await getJson("/api/status")).stations[0].departures)); throw e; });
+	check(true, "virtual shunting signal at the siding stop (leaves at (12,8))");
 	await page.click("#btnAutoRoutes");
 	await page.waitForFunction(() => document.getElementById("toast").textContent.includes("本作成しました"), null, { timeout: 30000 }).catch(() => {});
 	const routes = await waitFor(async () => { const r = (await getJson("/api/status")).routes; return r.length >= 2 ? r : null; }, 30000, "routes")
@@ -204,7 +216,7 @@ try {
 	const s1 = page.locator("svg g.clickable", { has: page.locator("title", { hasText: "(3, 5, 0)" }) }).first();
 	const dest2 = () => page.locator("svg g.clickable", { has: page.locator("title", { hasText: "着点ボタン：2番線" }) }).first();
 	const rows = await page.$$eval("#pointList .pt", ps => ps.map(p => p.textContent));
-	check(rows.length === 4, "four point levers: " + rows.map(r => r.slice(0, 12)).join(" / "));
+	check(rows.length === 5, "five point levers: " + rows.map(r => r.slice(0, 12)).join(" / "));
 	const revTip = async (name) => page.locator("#pointList .pt", { hasText: name }).locator("button", { hasText: "反位" }).getAttribute("title");
 	const same = (tip, a, b) => tip && tip.split("⇔").sort().join() === [a, b].sort().join();
 	check(same(await revTip("21号"), "西", "南"), "21号: reverse is the real turnout direction (西⇔南): " + await revTip("21号"));

@@ -277,7 +277,7 @@ function areaExits(st) {
 				if (!(t.r & d)) continue;
 				const n = neighbour(t, d);
 				if (!n || inGroup.has(key(n.p))) continue;
-				const ex = explore(n, d, (x) => !stationTiles.has(key(x.p)) || (x.h && x.h !== halt), (x) => x.h === halt);
+				const ex = explore(n, d, (x) => !stationTiles.has(key(x.p)) || (x.h && x.h !== halt && !sidingHaltIds().has(x.h)), (x) => x.h === halt);
 				if (!ex.signals.length && !ex.targets.length) continue; // trains cannot leave this way (one-way)
 				const dep = (st.departures || []).find(x => key(x.pos) === key(t.p));
 				res.push({ group: gi, end: t, dir: d, deadEnd, ex, dep, registered: ex.signals.filter(reg), unregistered: ex.signals.filter(x => !reg(x)) });

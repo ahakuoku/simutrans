@@ -404,23 +404,58 @@ function renderChecks(st) {
 
 function renderSidings(st) {
 	const box = document.getElementById("sidingList");
-	const html = !st ? `<span class="hint">先に連動駅を作成してください</span>` : layout.sidings.map((sd, i) => {
-		const k = key(sd.anchor.p);
-		const title = `${esc(sidingName(st, i))}（${sd.anchor.p[0]}, ${sd.anchor.p[1]}）` + (sd.deadEnd ? `<span class="tag">行き止まり</span>` : "") + `<span class="tag">${sd.tiles.length}マス</span>`;
-		const msg = sd.dep ? `✔ 仮想入換信号（${esc(signalLabel(st, sd.dep.pos))}）で管理しています` : "入換を扱わないなら、このままで構いません。";
-		const btn = sd.dep ? `<button data-shdel="${key(sd.dep.pos)}">仮想入換信号を解除</button>` : `<button data-shadd="${k}">仮想入換信号にする</button>`;
-		return `<div class="check ${sd.dep ? "ok" : ""}" data-prev="${sd.tiles.map(t => key(t.p)).join(";")}"><div class="head"><b>${title}</b></div><div class="msg">${msg}</div><div class="acts">${btn}</div></div>`;
-	}).join("") || `<span class="hint">区域内に行き止まりの線路はありません。</span>`;
+	let html = "";
+	if (st) {
+		// stops near the station that can be used as sidings (駅属性の留置線)
+		const on = sidingHaltIds();
+		const cands = [...new Set([...nearHalts, ...on])].map(id => halts.find(h => h.id === id)).filter(Boolean);
+		autoSidingHalts(st, cands);
+		if (cands.length) {
+			html += `<div class="check"><div class="head"><b>ほかの駅を留置線として扱う</b></div><div class="msg">区域につながるほかの駅です。チェックした駅は、この駅の区域の線路（留置線）として扱います。</div><div class="acts">` +
+				cands.map(h => `<label><input type="checkbox" data-sidhalt="${h.id}" ${on.has(h.id) ? "checked" : ""}>${esc(h.name)}</label>`).join("") + `</div></div>`;
+		}
+		html += layout.sidings.map((sd, i) => {
+			const title = `${esc(sidingName(st, i))}（${sd.anchor.p[0]}, ${sd.anchor.p[1]}）` + (sd.halt ? `<span class="tag">駅</span>` : "") +
+				(sd.deadEnd ? `<span class="tag">行き止まり</span>` : `<span class="tag">両端</span>`) + `<span class="tag">${sd.tiles.length}マス</span>`;
+			// one virtual shunting signal per end where trains leave
+			const ends = sd.deadEnd ? sd.ends.slice(0, 1) : sd.ends;
+			const acts = ends.map(e => {
+				const dep = sd.deps.find(d => key(d.pos) === key(e.t.p));
+				const side = ends.length > 1 ? `${dirName(e.dir)}側の端` : "";
+				return dep ? `<button data-shdel="${key(dep.pos)}">${side}仮想入換信号を解除</button>` : `<button data-shadd="${key(e.t.p)}">${side}仮想入換信号にする</button>`;
+			}).join("");
+			const msg = sd.deps.length ? `✔ 仮想入換信号（${sd.deps.map(d => esc(signalLabel(st, d.pos))).join("・")}）で管理しています` : "入換を扱わないなら、このままで構いません。";
+			return `<div class="check ${sd.deps.length ? "ok" : ""}" data-prev="${sd.tiles.map(t => key(t.p)).join(";")}"><div class="head"><b>${title}</b></div><div class="msg">${msg}</div><div class="acts">${acts}</div></div>`;
+		}).join("") || `<span class="hint">区域内に留置線はありません。</span>`;
+	}
+	else html = `<span class="hint">先に連動駅を作成してください</span>`;
 	if (box.dataset.html === html) return;
 	box.innerHTML = box.dataset.html = html;
-	for (const c of box.querySelectorAll(".check")) {
+	for (const c of box.querySelectorAll(".check[data-prev]")) {
 		c.addEventListener("mouseenter", () => { checkPreview = new Set(c.dataset.prev.split(";")); renderMap(); });
 		c.addEventListener("mouseleave", () => { checkPreview = null; renderMap(); });
 	}
 	for (const b of box.querySelectorAll("[data-shadd]")) b.addEventListener("click", () =>
-		command(`dep_add,${st.id},${b.dataset.shadd}`, "仮想入換信号の登録 (" + b.dataset.shadd + ")"));
+		command(`dep_add,${st.id},${b.dataset.shadd},S`, "仮想入換信号の登録 (" + b.dataset.shadd + ")"));
 	for (const b of box.querySelectorAll("[data-shdel]")) b.addEventListener("click", () =>
 		command(`dep_del,${st.id},${b.dataset.shdel}`, "仮想入換信号の解除 (" + b.dataset.shdel + ")"));
+	for (const c of box.querySelectorAll("[data-sidhalt]")) c.addEventListener("change", () => {
+		const ids = [...box.querySelectorAll("[data-sidhalt]")].filter(x => x.checked).map(x => Number(x.dataset.sidhalt));
+		setSidingHalts(st, ids);
+	});
+}
+// stored in the game as one tile of each stop
+function setSidingHalts(st, ids) {
+	const pos = ids.map(id => (tracks.tiles.find(t => t.h === id) || {}).p).filter(Boolean);
+	command(`st_sid,${st.id},${pos.map(p => p.join(":")).join(";")}`, "留置線として扱う駅");
+}
+// once per station: stops named like a siding (留置・引上…) are used as sidings
+function autoSidingHalts(st, cands) {
+	if ((st.siding_halts || []).length || localStore("sidauto." + st.id)) return;
+	const named = cands.filter(h => SIDING_NAME.test(h.name));
+	if (!named.length) return;
+	localStore("sidauto." + st.id, "1");
+	setSidingHalts(st, named.map(h => h.id));
 }
 
 function renderNames(st) {

@@ -251,6 +251,8 @@ function computeConnected(haltId) {
 	const set = new Set(plat.map(t => key(t.p)));
 	const visited = new Set();
 	const MAX = 80;
+	const sidings = sidingHaltIds();
+	nearHalts = new Set();
 	const finalize = (path, all) => {
 		let cut = path.length - 1;
 		if (!all) {
@@ -265,7 +267,7 @@ function computeConnected(haltId) {
 	const walk = (t, d, path) => {
 		for (;;) {
 			if (t.h === haltId) { finalize(path, true); return; }          // back at our own platforms
-			if (t.h) { finalize(path, false); return; }                     // another station: outside
+			if (t.h && !sidings.has(t.h)) { nearHalts.add(t.h); finalize(path, false); return; } // another station: outside
 			path.push(t);
 			const vk = key(t.p) + "|" + d;
 			if (visited.has(vk) || path.length > MAX) { finalize(path, false); return; }
@@ -520,7 +522,12 @@ function signalLabel(st, pos) {
 	const i = st.signals.findIndex(s => key(s.pos) === key(pos));
 	if (i >= 0) return "S" + (i + 1);
 	const d = (st.departures || []).find(x => key(x.pos) === key(pos));
-	if (d && layout.sidingOf.has(key(pos))) return sidingName(st, layout.sidingOf.get(key(pos))) + "入換";
+	if (d && d.shunt && layout.sidingOf.has(key(pos))) {
+		// a siding with a signal at each end: name the side
+		const sd = layout.sidings[layout.sidingOf.get(key(pos))];
+		const side = sd.deps.length > 1 ? `（${dirName(startTravelDir(st, pos))}）` : "";
+		return sidingName(st, layout.sidingOf.get(key(pos))) + "入換" + side;
+	}
 	if (d) {
 		const g = layout.groupOf.has(key(pos)) ? layout.groupOf.get(key(pos)) : -1;
 		return (g >= 0 ? platformName(st, g) : "番線") + "出発";
@@ -545,7 +552,16 @@ function pointName(st, i) {
 }
 function sidingName(st, i) {
 	const sd = layout.sidings[i];
-	return (sd && labelAt(st, groupRep(sd.tiles).p)) || "留置" + (i + 1);
+	if (!sd) return "留置" + (i + 1);
+	const own = labelAt(st, groupRep(sd.tiles).p);
+	if (own) return own;
+	if (sd.halt) {
+		// a stop used as a siding: its name (numbered when it has several tracks)
+		const hl = halts.find(h => h.id === sd.halt);
+		const same = layout.sidings.filter(x => x.halt === sd.halt);
+		if (hl) return hl.name + (same.length > 1 ? same.indexOf(sd) + 1 : "");
+	}
+	return "留置" + (i + 1);
 }
 function exitName(st, i) { return labelAt(st, layout.exits[i].tile.p) || "出口" + (i + 1); }
 
@@ -596,12 +612,13 @@ function computeLayout() {
 const isPlain = (t) => t && bitCount(t.r) <= 2 && !t.h && !t.s && !t.d;
 function findSidings(inside, L) {
 	const st = station();
-	const shunt = new Set(((st && st.departures) || []).filter(d => d.shunt).flatMap(d => d.tiles.map(key)));
+	const deps = (st && st.departures) || [];
+	const shunt = new Set(deps.filter(d => d.shunt).flatMap(d => d.tiles.map(key)));
 	const exitTiles = new Set(L.exits.map(x => key(x.tile.p)));
-	const left = new Set(inside.filter(isPlain).map(t => key(t.p)));
+	const insideKeys = new Set(inside.map(t => key(t.p)));
 	const res = [];
-	for (const t0 of inside) {
-		if (!left.has(key(t0.p))) continue;
+	// a connected run of tiles that belong together; ends = tiles where the track goes on
+	const collect = (t0, member, left) => {
 		const g = [], q = [t0], ends = [];
 		left.delete(key(t0.p));
 		let deadEnd = false;
@@ -614,20 +631,53 @@ function findSidings(inside, L) {
 				const n = neighbour(c, d);
 				if (!n) continue;
 				if (left.has(key(n.p))) { left.delete(key(n.p)); q.push(n); }
-				else if (!isPlain(n) && !ends.some(e => e.t === c)) ends.push({ t: c, dir: d });
+				else if (!member(n) && !ends.some(e => e.t === c)) ends.push({ t: c, dir: d });
 			}
 		}
+		return { g, ends, deadEnd };
+	};
+	const add = (g, ends, deadEnd, halt) => {
+		const own = deps.filter(d => g.some(t => key(t.p) === key(d.pos)));
+		const anchor = own.length ? tileIndex.get(key(own[0].pos)) || ends[0]?.t : ends[0]?.t;
+		if (!anchor) return;
+		res.push({ tiles: g, anchor, ends, deadEnd, deps: own, dep: own[0], halt });
+	};
+	// plain tracks ending in a buffer stop, and every plain track with a virtual shunting signal
+	const left = new Set(inside.filter(isPlain).map(t => key(t.p)));
+	for (const t0 of inside) {
+		if (!left.has(key(t0.p))) continue;
+		const { g, ends, deadEnd } = collect(t0, isPlain, left);
 		const registered = g.some(t => shunt.has(key(t.p)));
 		if (!registered && (!deadEnd || ends.length !== 1 || g.some(t => exitTiles.has(key(t.p))))) continue;
-		const dep = ((st && st.departures) || []).find(d => g.some(t => key(t.p) === key(d.pos)));
-		const anchor = dep ? tileIndex.get(key(dep.pos)) || ends[0]?.t : ends[0]?.t;
-		if (!anchor) continue;
-		res.push({ tiles: g, anchor, deadEnd, dep });
+		add(g, ends, deadEnd, 0);
+	}
+	// stops used as sidings (駅属性の留置線): each track of the stop, also when both ends lead on
+	for (const hid of sidingHaltIds()) {
+		const hleft = new Set(inside.filter(t => t.h === hid).map(t => key(t.p)));
+		for (const t0 of inside) {
+			if (!hleft.has(key(t0.p))) continue;
+			const { g, ends, deadEnd } = collect(t0, (n) => n.h === hid && insideKeys.has(key(n.p)), hleft);
+			add(g, ends, deadEnd || ends.length === 1, hid);
+		}
 	}
 	// number them from north to south, west to east
 	res.sort((a, b) => groupRep(a.tiles).p[1] - groupRep(b.tiles).p[1] || groupRep(a.tiles).p[0] - groupRep(b.tiles).p[0]);
 	return res;
 }
+
+// stops in the area used as sidings (stored in the game as one tile of each stop)
+function sidingHaltIds() {
+	const st = station();
+	const ids = new Set();
+	for (const p of (st && st.siding_halts) || []) {
+		const t = tileIndex.get(key(p));
+		if (t && t.h) ids.add(t.h);
+	}
+	return ids;
+}
+// stops reached from the station that are not the station itself (candidates for sidings)
+let nearHalts = new Set();
+const SIDING_NAME = /留置|引上|電留|検車|車庫|入換/;
 
 const isStraight = (p) => p[0] === BACK[p[1]];
 const pairKey = (p) => p.slice().sort((a, b) => a - b).join(",");
