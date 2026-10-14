@@ -132,6 +132,13 @@ try {
 	const ownerOpts = await page.$$eval("#ownerSel option", os => os.map(o => o.textContent));
 	check(ownerOpts.length >= 2 && ownerOpts[0].startsWith("すべての会社"), "company filter: " + ownerOpts.join(" / "));
 	check(await page.$("#sigList .owner") !== null, "signal list (other signals) grouped by company: " + await page.textContent("#sigList .owner"));
+	await page.click("#otherSigs summary");
+	await page.hover("#sigList [data-hsig='3,5,0']");
+	check(await page.locator("#hoverSignalRing").count() === 1, "pointing at a signal in the list highlights it on the map");
+	await page.screenshot({ path: path.join(shots, "0c_signal_hover.png") });
+	await page.mouse.move(5, 5);
+	await page.waitForFunction(() => !document.getElementById("hoverSignalRing"), null, { timeout: 5000 });
+	await page.click("#otherSigs summary");
 	// entrances: west (S1, not yet registered) and east (from B, no signal at all)
 	await page.waitForSelector("#entryList .check");
 	const entries = await page.$$eval("#entryList .check", cs => cs.map(c => c.textContent));

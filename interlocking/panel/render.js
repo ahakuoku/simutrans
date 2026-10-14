@@ -276,6 +276,19 @@ function renderMap() {
 		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, hl.name, { "font-size": 11, fill: "#9fb3cf" });
 	}
 	placeLabels();
+	// the signal pointed at in a list of the setup tab
+	if (hoverSignal) {
+		const t = tileIndex.get(hoverSignal);
+		if (t) {
+			const ring = el("circle", { cx: cx(t.p), cy: cy(t.p), r: 19 * sc, fill: "none", stroke: "var(--yellow)", "stroke-width": 4, class: "blink", "pointer-events": "none", id: "hoverSignalRing" }, g);
+			el("circle", { cx: cx(t.p), cy: cy(t.p), r: 26 * sc, fill: "none", stroke: "var(--yellow)", "stroke-width": 1.5, opacity: .6, "pointer-events": "none" }, g);
+			if (hoverScroll) {
+				hoverScroll = false;
+				const wr = document.getElementById("mapwrap").getBoundingClientRect(), rr = ring.getBoundingClientRect();
+				if (rr.left < wr.left || rr.right > wr.right || rr.top < wr.top + 40 || rr.bottom > wr.bottom) ring.scrollIntoView({ block: "center", inline: "center" });
+			}
+		}
+	}
 
 	// a signal lever drawn on the map (relay panel): knob, aspect lamp ahead, number
 	function mapKnob(pos, x, y, dx, dy) {
@@ -430,6 +443,14 @@ function renderRun() {
 }
 
 let checkPreview = null; // tiles highlighted while hovering a check row
+let hoverSignal = null;   // signal highlighted while hovering it in a list (key)
+let hoverScroll = false;  // bring it into view once
+function hoverSignalOn(elements, keyOf) {
+	for (const e of elements) {
+		e.addEventListener("mouseenter", () => { hoverSignal = keyOf(e); hoverScroll = true; renderMap(); });
+		e.addEventListener("mouseleave", () => { hoverSignal = null; renderMap(); });
+	}
+}
 function renderChecks(st) {
 	const el1 = document.getElementById("entryList"), el2 = document.getElementById("exitList");
 	if (!st) { el1.innerHTML = el2.innerHTML = `<span class="hint">先に連動駅を作成してください</span>`; el1.dataset.html = el2.dataset.html = ""; return; }
@@ -467,6 +488,7 @@ function renderChecks(st) {
 		c.addEventListener("mouseenter", () => { checkPreview = new Set(c.dataset.prev.split(";")); renderMap(); });
 		c.addEventListener("mouseleave", () => { checkPreview = null; renderMap(); });
 	}
+	hoverSignalOn(document.querySelectorAll("[data-sigtoggle]"), (e) => e.dataset.sigtoggle);
 	for (const b of document.querySelectorAll("[data-sigtoggle]")) b.addEventListener("click", () => {
 		const t = tileIndex.get(b.dataset.sigtoggle);
 		toggleSignal(t, st.signals.some(s => key(s.pos) === b.dataset.sigtoggle));
@@ -588,18 +610,23 @@ function renderSetup() {
 	const sigs = tracks.tiles.filter(t => t.s && (isVisible(t) || (st && st.signals.some(s => key(s.pos) === key(t.p)))))
 		.sort((a, b) => (sortMode === "owner" ? (a.s.o ?? 99) - (b.s.o ?? 99) : 0) || a.p[1] - b.p[1] || a.p[0] - b.p[0] || b.p[2] - a.p[2]);
 	let lastOwner = null;
-	sl.innerHTML = !st ? `<span class="hint">先に連動駅を作成してください</span>` : sigs.length ? sigs.map(t => {
+	const slHtml = !st ? `<span class="hint">先に連動駅を作成してください</span>` : sigs.length ? sigs.map(t => {
 		const on = st.signals.some(s => key(s.pos) === key(t.p));
 		let head = "";
 		if (sortMode === "owner" && t.s.o !== lastOwner) { lastOwner = t.s.o; head = `<div class="owner">${esc(companyName(t.s.o))}</div>`; }
-		return head + `<div class="item"><span>${on ? "<b>" + signalLabel(st, t.p) + "</b> " : ""}(${t.p.join(", ")}) <span class="hint">${layerName(t.p[2])}${sortMode === "pos" ? "・" + esc(companyName(t.s.o)) : ""}</span></span>
+		return head + `<div class="item" data-hsig="${key(t.p)}"><span>${on ? "<b>" + signalLabel(st, t.p) + "</b> " : ""}(${t.p.join(", ")}) <span class="hint">${layerName(t.p[2])}${sortMode === "pos" ? "・" + esc(companyName(t.s.o)) : ""}</span></span>
 			<button data-sig="${key(t.p)}">${on ? "解除" : "登録"}</button></div>`;
 	}).join("") : `<span class="hint">表示中の線路に信号がありません（上の表示の切り替えも確認してください）</span>`;
-	for (const b of sl.querySelectorAll("button")) b.addEventListener("click", () => {
-		const t = tileIndex.get(b.dataset.sig);
-		const on = st.signals.some(s => key(s.pos) === b.dataset.sig);
-		toggleSignal(t, on);
-	});
+	// rebuilt only when it changes, so that the item under the mouse stays
+	if (sl.dataset.html !== slHtml) {
+		sl.innerHTML = sl.dataset.html = slHtml;
+		for (const b of sl.querySelectorAll("button")) b.addEventListener("click", () => {
+			const t = tileIndex.get(b.dataset.sig);
+			const on = st.signals.some(s => key(s.pos) === b.dataset.sig);
+			toggleSignal(t, on);
+		});
+		hoverSignalOn(sl.querySelectorAll("[data-hsig]"), (e) => e.dataset.hsig);
+	}
 	// routes
 	const rl = document.getElementById("routeList");
 	const routes = st ? status.routes.filter(r => r.station === st.id) : [];

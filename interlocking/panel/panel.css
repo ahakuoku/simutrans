@@ -191,3 +191,4 @@ body.relay .cfgbox .kinds button.on { background: #2e6b45; border-color: #46c06b
 #map .mapknob { cursor: pointer; }
 #map .mapknob .ring { fill: none; stroke: transparent; stroke-width: 2.5; }
 #map .mapknob.hl .ring { stroke: var(--accent); }
+#sigList .item:hover, [data-sigtoggle]:hover { border-color: var(--yellow); }
