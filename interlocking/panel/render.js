@@ -166,7 +166,7 @@ function renderMap() {
 		const travel = singleDir(t.m) || singleDir(t.r & ~BACK[singleDir(t.m) || 0]) || E;
 		// signal head on the left side of the direction of travel (Japanese left-hand running)
 		const [dx, dy] = SV(travel);
-		const off = (mapLevers && interlocked ? 10 : 11) * sc;
+		const off = (mapLevers && interlocked ? 12 : 11) * sc;
 		const ox = dy * off, oy = -dx * off;
 		const x = cx(t.p) + ox, y = cy(t.p) + oy;
 		const fill = t.s.aspect === "green" ? "var(--green)" : t.s.aspect === "yellow" ? "var(--yellow)" : "var(--red)";
@@ -248,7 +248,7 @@ function renderMap() {
 		if (mapLevers) {
 			// relay panel: the lever beside the platform end (left of the direction of leaving)
 			const [dx, dy] = SV(startTravelDir(st, d.pos) || E);
-			mapKnob(d.pos, cx(t.p) + dy * 10 * sc, cy(t.p) - dx * 10 * sc, dx, dy);
+			mapKnob(d.pos, cx(t.p) + dy * 12 * sc, cy(t.p) - dx * 12 * sc, dx, dy);
 			continue;
 		}
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
@@ -276,17 +276,19 @@ function renderMap() {
 	// a signal lever drawn on the map (relay panel): knob, aspect lamp ahead, number
 	function mapKnob(pos, x, y, dx, dy) {
 		const v = leverView(st, pos);
-		const r = 7.5 * sc;
+		const k = .42 * sc;              // the lever of the board, scaled down
+		const r = 22 * k;                // radius of its base
 		const grp = el("g", { class: "mapknob" + (hoverLever === key(pos) ? " hl" : ""), "data-mk": key(pos) }, g);
 		el("circle", { cx: x, cy: y, r: r + 3, class: "ring" }, grp);
-		el("circle", { cx: x, cy: y, r, fill: "#11161a", stroke: "#4a5a52", "stroke-width": 1.5 }, grp);
-		const kg = el("g", { transform: `rotate(${v.angle} ${x} ${y})` }, grp);
-		el("rect", { x: x - 2.6 * sc, y: y - r + 1.5, width: 5.2 * sc, height: 2 * r - 3, rx: 2.6 * sc, fill: v.shunt ? "#e9ebe4" : "#c8323a" }, kg);
+		const lg = el("g", { transform: `translate(${x - 30 * k} ${y - 40 * k}) scale(${k})` }, grp);
+		lg.innerHTML = leverShapes(v.shunt ? LEVER_WHITE : LEVER_RED, v.angle ? Math.sign(v.angle) * 40 : 0, v.no);
 		const lx = x + dx * (r + 4 * sc), ly = y + dy * (r + 4 * sc);
 		el("circle", { cx: lx, cy: ly, r: 3.2 * sc, fill: v.clear ? "var(--green)" : "var(--red)", stroke: "#000", "stroke-width": .8, class: v.blink ? "blink" : "" }, grp);
 		block(x - r - 2, y - r - 2, x + r + 2, y + r + 2, 3);
 		block(lx - 4 * sc, ly - 4 * sc, lx + 4 * sc, ly + 4 * sc, 3);
-		label(grp, x, y, r + 1, String(v.no), { "font-size": Math.max(11, 11 * sc), "font-weight": 700, fill: "#e8e4d4" });
+		// the number is on the plate of the lever; at small sizes also beside it
+		if (sc < 1.6) label(grp, x, y, r + 1, String(v.no), { "font-size": Math.max(10, 10 * sc), "font-weight": 700, fill: "#e8e4d4" });
+
 		grp.appendChild(el("title", {})).textContent = `${v.no} ${signalLabel(st, pos)}：${v.sl ? "反位（もう一度押すと定位）" : "押すと開通方向にひねる"}${v.state ? "　" + v.state : ""}`;
 		grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null); });
 		grp.addEventListener("mouseenter", () => setHoverLever(key(pos)));

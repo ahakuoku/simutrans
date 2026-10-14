@@ -92,7 +92,30 @@ function checkApproach(st) {
 }
 
 // knob of a rotary lever: angle -45 (left) / 0 / 45 (right)
-function knob(color, angle, label) {
+// lever of a relay panel as on the real panels: a handle with a round top and a black number plate,
+// turning on a dark base (shapes in a 60 x 66 box, pivot at 30,40)
+function leverShapes(color, angle, no) {
+	const txt = String(no ?? "");
+	const numColor = "#f4f4f4";
+	const edge = color === "#2b2f33" ? `stroke="#8a948d" stroke-opacity=".9"` : `stroke="#000" stroke-opacity=".45"`;
+	const fs = txt.length >= 3 ? 7.4 : 9.6;
+	return `<circle cx="30" cy="40" r="22" fill="#0d1210" stroke="#3b4a42" stroke-width="1.5"/>
+		<circle cx="30" cy="40" r="17" fill="#1a211d"/>
+		<g transform="rotate(${angle} 30 40)">
+			<path d="M17 46 V21 A13 13 0 0 1 43 21 V46 Q43 52 37 52 H23 Q17 52 17 46 Z" fill="${color}" ${edge} stroke-width="1"/>
+			<path d="M20.5 30 V21 A9.5 9.5 0 0 1 27 12" fill="none" stroke="#fff" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>
+			<rect x="21" y="44" width="18" height="4" rx="2" fill="#000" opacity=".18"/>
+			<circle cx="30" cy="25" r="9.6" fill="#111" stroke="#efefef" stroke-width="1.6"/>
+			<text x="30" y="${25 + fs * .36}" font-size="${fs}" font-weight="700" text-anchor="middle" fill="${numColor}" font-family="Arial, sans-serif">${esc(txt)}</text>
+		</g>`;
+}
+// a lever on the board; label = small marks under it (e.g. "N C R")
+function knob(color, angle, label, no) {
+	return `<svg class="knob" viewBox="0 0 60 66" width="56" height="62" aria-hidden="true">${leverShapes(color, angle, no)}
+		${label ? `<text x="30" y="65" font-size="8" text-anchor="middle" fill="#cfd6cf">${label}</text>` : ""}</svg>`;
+}
+// the bar-shaped lever (駅扱切換てこ)
+function barKnob(color, angle, label) {
 	return `<svg class="knob" viewBox="0 0 60 60" width="56" height="56" aria-hidden="true">
 		<circle cx="30" cy="30" r="25" fill="#11161a" stroke="#4a5a52" stroke-width="2"/>
 		<g transform="rotate(${angle} 30 30)">
@@ -102,6 +125,8 @@ function knob(color, angle, label) {
 		${label ? `<text x="30" y="58" font-size="9" text-anchor="middle" fill="#cfd6cf">${label}</text>` : ""}
 	</svg>`;
 }
+const LEVER_RED = "#c8323a", LEVER_WHITE = "#ecebe4", LEVER_BLACK = "#2b2f33";
+
 // the two side buttons under a knob (the knob itself is the middle)
 const sideBtns = (l, r, disL, disR, onL, onR) =>
 	`<div class="lrbtn"><button data-side="L" class="${onL ? "on" : ""}" ${disL ? "disabled" : ""}>${l}</button><button data-side="R" class="${onR ? "on" : ""}" ${disR ? "disabled" : ""}>${r}</button></div>`;
@@ -134,7 +159,7 @@ function renderRelayBoard() {
 		else if (sl && !sl.used) state = `<span class="timer">着点を押す</span>`;
 		html += `<div class="rlever ${relayStart() && key(relayStart().pos) === key(l.pos) ? "sel" : ""} ${hoverLever === key(l.pos) ? "hl" : ""}" data-sl="${key(l.pos)}" title="${esc(signalLabel(st, l.pos))}：${side === "L" ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）">
 			<div class="lamps">${lamp(sl && sl.side === "L", "#f4f1e6")}${lamp(clear, "var(--green)")}${lamp(!clear, "var(--red)", "small")}${lamp(sl && sl.side === "R", "#f4f1e6")}</div>
-			${knob(l.shunt ? "#e9ebe4" : "#c8323a", angle)}
+			${knob(l.shunt ? LEVER_WHITE : LEVER_RED, sl ? (sl.side === "L" ? -40 : 40) : 0, "", l.no)}
 			${sideBtns("◀", "▶", side !== "L" || (sl && sl.side !== "L"), side !== "R" || (sl && sl.side !== "R"), sl && sl.side === "L", sl && sl.side === "R")}
 			<div class="plate">${l.no}</div><div class="lname">${esc(signalLabel(st, l.pos))}</div>${state}</div>`;
 	}
@@ -148,7 +173,7 @@ function renderRelayBoard() {
 		const blink = lp.moving > 0 ? "blink" : "";
 		html += `<div class="rlever point ${ls.locked ? "locked" : ""}" data-pl="${li}" title="${esc(leverName(st, li))}：◀ N（定位）・つまみ C（総括）・▶ R（反位）">
 			<div class="lamps">${lamp(lp.pos === "N", "var(--green)", blink)}<span class="lt">N</span><span class="lt">R</span>${lamp(lp.pos === "R", "var(--green)", blink)}</div>
-			${knob("#23272b", angle, "N　C　R")}
+			${knob(LEVER_BLACK, m === "N" ? -40 : m === "R" ? 40 : 0, "N　　C　　R", 21 + li)}
 			${sideBtns("◀N", "R▶", false, false, m === "N", m === "R")}
 			<div class="plate">${21 + li}${lv.double ? "<small>イロ</small>" : ""}</div>${labelAt(st, pt.t.p) ? `<div class="lname">${esc(labelAt(st, pt.t.p))}</div>` : ""}
 			${ls.locked ? `<span class="timer dim">鎖錠</span>` : lp.moving > 0 ? `<span class="timer blink">転換 ${lp.moving}秒</span>` : ""}</div>`;
@@ -156,10 +181,10 @@ function renderRelayBoard() {
 	html += `</div><h2>その他のてこ</h2><div class="rboard">
 		<div class="rlever" data-stop="1" title="一斉停止てこ：すべての信号を停止にする">
 			<div class="lamps">${lamp(st.all_stop, "var(--red)", st.all_stop ? "blink" : "")}</div>
-			${knob("#c8323a", st.all_stop ? 45 : 0)}<div class="plate">停</div><div class="lname">一斉停止</div></div>
+			${knob(LEVER_RED, st.all_stop ? 40 : 0, "", "停")}<div class="plate">停</div><div class="lname">一斉停止</div></div>
 		<div class="rlever" data-mode="1" title="駅扱切換てこ：左＝CTC集中（自動）、右＝駅扱（扱者）">
 			<div class="lamps">${lamp(!st.manual, "#f4f1e6")}${lamp(st.manual, "var(--green)")}</div>
-			${knob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
+			${barKnob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
 		<div class="rlever" data-buzz="1" title="接近電響：列車が信号で待つと音で知らせる（このブラウザだけ）">
 			<div class="lamps">${lamp(buzzerOn, "var(--green)")}</div>
 			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響</div></div>
