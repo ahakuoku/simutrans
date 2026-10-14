@@ -118,6 +118,10 @@ struct il_station_t {
 	vector_tpl<il_point_t *> points;
 	/// other stops in the area used as sidings (留置線): one tile of each stop
 	vector_tpl<koord3d> siding_halts;
+	/// relay: one lever for two signals (left = pair_left[i], right = pair_right[i])
+	vector_tpl<koord3d> pair_left, pair_right;
+	/// index of the lever pair with this start point, -1 if none
+	sint32 find_pair(koord3d pos) const;
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }

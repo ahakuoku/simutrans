@@ -381,6 +381,18 @@ def run(args):
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "idle", 120)
         check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"], "lever turned back")
 
+        print("[4e] one lever for two signals (left / right)")
+        check(p.cmd(f"lv_pair,{sid},3,5,0,5,7,0")["ok"], "S1 (left) and the shunting signal (right) on one lever")
+        check(p.status()["stations"][0]["pairs"] == [[[3, 5, 0], [5, 7, 0]]], "lever pair stored")
+        res = p.cmd(f"sl_turn,{sid},5,7,0,L")
+        check(not res["ok"] and res["error"] == "this side belongs to the other signal of the lever", "the left side belongs to S1")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,R")["ok"], "lever turned to the right (shunting signal)")
+        res = p.cmd(f"sl_turn,{sid},3,5,0,L")
+        check(not res["ok"] and res["error"] == "turn the lever back first", "the same lever cannot be turned to both sides")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"] and p.cmd(f"sl_turn,{sid},3,5,0,L")["ok"], "back to normal, then to the left (S1)")
+        check(p.cmd(f"sl_turn,{sid},3,5,0,N")["ok"], "lever back")
+        check(not p.cmd(f"lv_pair,{sid},3,5,0,8,5,0")["ok"], "a signal can be on one lever pair only")
+
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
         before = p.status()
@@ -421,7 +433,7 @@ def run(args):
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
                                  st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
-                                 st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
+                                 st["pairs"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")

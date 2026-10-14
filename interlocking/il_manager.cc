@@ -28,7 +28,8 @@
 // 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names  4: + point levers
 // 5: + kind (relay), operators, signal levers, point positions, timers
 // 6: + kind of virtual signals (departure / shunting), sidings in other stops
-#define IL_SAVE_VERSION 6
+// 7: + lever pairs (one lever for two signals)
+#define IL_SAVE_VERSION 7
 
 // ticks per second of game time at normal speed (time multiplier 16: one tick per millisecond)
 #define IL_TICKS_PER_SECOND 1000
@@ -102,6 +103,28 @@ il_slever_t *il_station_t::find_slever(koord3d pos) const
 		}
 	}
 	return NULL;
+}
+
+
+sint32 il_station_t::find_pair(koord3d pos) const
+{
+	for(  uint32 i = 0;  i < pair_left.get_count();  i++  ) {
+		if(  pair_left[i] == pos  ||  pair_right[i] == pos  ) {
+			return (sint32)i;
+		}
+	}
+	return -1;
+}
+
+
+/// removes the lever pairs with this start point (the signal is no longer registered)
+static void remove_pairs(il_station_t *st, koord3d pos)
+{
+	sint32 i;
+	while(  (i = st->find_pair(pos)) >= 0  ) {
+		st->pair_left.remove_at((uint32)i);
+		st->pair_right.remove_at((uint32)i);
+	}
 }
 
 
@@ -450,6 +473,17 @@ const char *interlocking_manager_t::cmd_signal_lever(il_station_t *st, koord3d p
 		if(  l  ) {
 			return l->side == side ? NULL : "turn the lever back first";
 		}
+		const sint32 pi = st->find_pair(pos);
+		if(  pi >= 0  ) {
+			// one lever for two signals: each signal has its side, and the lever turns to one side only
+			const koord3d other = st->pair_left[(uint32)pi] == pos ? st->pair_right[(uint32)pi] : st->pair_left[(uint32)pi];
+			if(  side != (st->pair_left[(uint32)pi] == pos ? 'L' : 'R')  ) {
+				return "this side belongs to the other signal of the lever";
+			}
+			if(  st->find_slever(other)  ) {
+				return "turn the lever back first";
+			}
+		}
 		l = new il_slever_t();
 		l->pos = pos;
 		l->side = (uint8)side;
@@ -739,6 +773,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			if(  !st->signals.remove(pos)  ) {
 				error = "signal not registered";
 			}
+			else {
+				remove_pairs(st, pos);
+			}
 		}
 	}
 	else if(  (strcmp(cmd, "dep_add") == 0  ||  strcmp(cmd, "dep_del") == 0)  &&  n >= 5  ) {
@@ -797,6 +834,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 				error = "click the platform end where trains leave";
 			}
 			else {
+				remove_pairs(st, existing->anchor);
 				st->departures.remove(existing);
 				delete existing;
 			}
@@ -882,6 +920,47 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 					q++;
 				}
 			}
+		}
+	}
+	else if(  strcmp(cmd, "lv_pair") == 0  &&  n >= 8  ) {
+		// one lever for two signals: left signal, right signal
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pl((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		const koord3d pr((sint16)atoi(f[5]), (sint16)atoi(f[6]), (sint8)atoi(f[7]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  !is_start_point(st, pl)  ||  !is_start_point(st, pr)  ) {
+			error = "start is not a registered signal of this station";
+		}
+		else if(  pl == pr  ||  st->find_pair(pl) >= 0  ||  st->find_pair(pr) >= 0  ) {
+			error = "the signal already has a lever pair";
+		}
+		else if(  st->find_slever(pl)  ||  st->find_slever(pr)  ) {
+			error = "turn the lever back first";
+		}
+		else {
+			st->pair_left.append(pl);
+			st->pair_right.append(pr);
+		}
+	}
+	else if(  strcmp(cmd, "lv_unpair") == 0  &&  n >= 5  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  st->find_pair(pos) < 0  ) {
+			error = "no lever pair";
+		}
+		else {
+			remove_pairs(st, pos);
 		}
 	}
 	else if(  strcmp(cmd, "st_stop") == 0  &&  n >= 3  ) {
@@ -1775,6 +1854,10 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 		if(  version >= 6  ) {
 			rdwr_pos_vector(file, st->siding_halts);
 		}
+		if(  version >= 7  ) {
+			rdwr_pos_vector(file, st->pair_left);
+			rdwr_pos_vector(file, st->pair_right);
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -1836,6 +1919,10 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		for(  uint32 i = 0;  i < st->siding_halts.get_count();  i++  ) {
 			st->siding_halts[i].rotate90(y_size);
 		}
+		for(  uint32 i = 0;  i < st->pair_left.get_count();  i++  ) {
+			st->pair_left[i].rotate90(y_size);
+			st->pair_right[i].rotate90(y_size);
+		}
 		FOR(vector_tpl<il_point_t *>, pt, st->points) {
 			pt->pos.rotate90(y_size);
 			pt->a = ribi_t::rotate90(pt->a);
@@ -1882,6 +1969,14 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		for(  uint32 i = 0;  i < st->siding_halts.get_count();  i++  ) {
 			buf.append(i ? "," : "");
 			append_json_pos(buf, st->siding_halts[i]);
+		}
+		buf.append("],\"pairs\":[");
+		for(  uint32 i = 0;  i < st->pair_left.get_count();  i++  ) {
+			buf.append(i ? ",[" : "[");
+			append_json_pos(buf, st->pair_left[i]);
+			buf.append(",");
+			append_json_pos(buf, st->pair_right[i]);
+			buf.append("]");
 		}
 		buf.append("],\"slevers\":[");
 		for(  uint32 i = 0;  i < st->slevers.get_count();  i++  ) {
