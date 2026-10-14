@@ -85,38 +85,47 @@ function signalLevers(st) {
 		used.add(key(s.pos));
 		res.push(Object.assign({ pair: false }, s));
 	}
+	// shunting levers (入換てこ) at start points: white = shunting signal, green = shunting indicator
+	for (const x of st.shunt_levers || []) {
+		const s = of(x.pos);
+		if (s) res.push({ pair: false, extra: true, pos: s.pos, dep: s.dep, shunt: true, color: x.color });
+	}
 	res.forEach((l, i) => { l.no = i + 1; });
 	return res;
 }
+const shuntColor = (st, pos) => ((st.shunt_levers || []).find(x => key(x.pos) === key(pos)) || {}).color;
 // the lever of a start point, and its side when the lever is shared
 function leverOfPos(st, pos) {
 	for (const l of signalLevers(st)) {
+		if (l.extra) continue;
 		if (!l.pair && key(l.pos) === key(pos)) return { lever: l, side: null };
 		if (l.pair && key(l.left.pos) === key(pos)) return { lever: l, side: "L" };
 		if (l.pair && key(l.right.pos) === key(pos)) return { lever: l, side: "R" };
 	}
 	return { lever: { no: "", shunt: false }, side: null };
 }
-const sleverOf = (st, pos) => (st.slevers || []).find(l => key(l.pos) === key(pos));
+// the turned lever at a start point: the signal lever, or (sh) its shunting lever
+const sleverOf = (st, pos, sh = false) => (st.slevers || []).find(l => key(l.pos) === key(pos) && !!l.shunt === !!sh);
+const leverKey = (pos, sh) => key(pos) + (sh ? "|S" : "");
 
 // start of the next route: the lever this browser turned, else any turned lever without a route yet
 function relayStart() {
 	const st = station();
 	if (!st) return null;
 	const free = (st.slevers || []).filter(l => !l.used);
-	const sel = free.find(l => key(l.pos) === relaySel) || free[free.length - 1];
+	const sel = free.find(l => leverKey(l.pos, l.shunt) === relaySel) || free[free.length - 1];
 	if (!sel) return null;
-	return { pos: sel.pos, dep: isDepartureAnchor(st, sel.pos) };
+	return { pos: sel.pos, dep: isDepartureAnchor(st, sel.pos), shunt: !!sel.shunt, green: !!sel.shunt && shuntColor(st, sel.pos) === "G" };
 }
 
-function turnSignalLever(pos, side) {
+function turnSignalLever(pos, side, sh = false) {
 	const st = station();
 	if (!st.manual) { toast("CTC集中（自動）です。駅扱切換てこを「駅扱」にしてください", true); return; }
-	const lv = sleverOf(st, pos);
+	const lv = sleverOf(st, pos, sh);
 	const want = side || (lv ? "N" : leverSide(st, pos));
 	if (want !== "N" && want !== leverSide(st, pos)) { toast("このてこは反対側には開通しません", true); return; }
-	if (want !== "N") relaySel = key(pos);
-	command(`sl_turn,${st.id},${pos.join(",")},${want}`, `${signalLabel(st, pos)} てこ ${want === "N" ? "定位" : want === "L" ? "左反位" : "右反位"}`);
+	if (want !== "N") relaySel = leverKey(pos, sh);
+	command(`sl_turn,${st.id},${pos.join(",")},${want}${sh ? ",S" : ""}`, `${signalLabel(st, pos)}${sh ? " 入換" : ""} てこ ${want === "N" ? "定位" : want === "L" ? "左反位" : "右反位"}`);
 }
 
 // actual position of a point (from the game): "N", "R", "X" (other pair) or null (unknown)
@@ -143,7 +152,7 @@ function beep() {
 function checkApproach(st) {
 	const now = new Set();
 	for (const s of st.signals) if (s.train && s.aspect === "red") now.add(key(s.pos) + "|" + s.train);
-	for (const d of st.departures || []) if (d.train && d.waiting) now.add(key(d.pos) + "|" + d.train);
+	// only trains approaching the station (waiting at its signals), not trains waiting to depart
 	if (buzzerOn && [...now].some(k => !lastWaiting.has(k))) beep();
 	lastWaiting = now;
 }
@@ -189,18 +198,18 @@ function barKnob(color, angle, label) {
 		${label ? `<text x="30" y="58" font-size="9" text-anchor="middle" fill="#cfd6cf">${label}</text>` : ""}
 	</svg>`;
 }
-const LEVER_RED = "#c8323a", LEVER_WHITE = "#ecebe4", LEVER_BLACK = "#2b2f33";
+const LEVER_RED = "#c8323a", LEVER_WHITE = "#ecebe4", LEVER_BLACK = "#2b2f33", LEVER_GREEN = "#2f8f4e";
 
 // the two side buttons under a knob (the knob itself is the middle)
 const sideBtns = (l, r, disL, disR, onL, onR) =>
 	`<div class="lrbtn"><button data-side="L" class="${onL ? "on" : ""}" ${disL ? "disabled" : ""}>${l}</button><button data-side="R" class="${onR ? "on" : ""}" ${disR ? "disabled" : ""}>${r}</button></div>`;
 let hoverLever = null;    // key of the signal lever under the mouse (board or map)
-// k: one start point "x,y,z" (from the map) or all of a lever "k1|k2" (from the board)
+// k: one lever key "x,y,z" or "x,y,z|S" (from the map) or all of a board lever "k1;k2"
 function setHoverLever(k) {
-	const ks = k ? k.split("|") : [];
+	const ks = k ? k.split(";") : [];
 	let all = ks;
 	for (const e of document.querySelectorAll("#relayBoard [data-keys]")) {
-		const mine = e.dataset.keys.split("|");
+		const mine = e.dataset.keys.split(";");
 		const on = ks.some(x => mine.includes(x));
 		e.classList.toggle("hl", on);
 		if (on) all = [...new Set(all.concat(mine))];
@@ -215,16 +224,17 @@ function renderRelayBoard() {
 	const st = station();
 	if (!st || !isRelay()) { box.innerHTML = ""; box.dataset.html = ""; return; }
 	checkApproach(st);
-	const act = (pos) => status.routes.find(r => key(r.start) === key(pos) && r.state !== "idle");
+	const act = (pos, sh = false) => status.routes.find(r => key(r.start) === key(pos) && !!r.shunt === sh && r.state !== "idle");
 	let html = `<h2>信号てこ</h2><div class="rboard">`;
 	for (const l of signalLevers(st)) {
 		// the start point on each side of the lever (a shared lever has one on each side)
 		const sides = l.pair ? { L: l.left.pos, R: l.right.pos } : { [leverSide(st, l.pos)]: l.pos };
-		const slL = sides.L && sleverOf(st, sides.L), slR = sides.R && sleverOf(st, sides.R);
+		const sh = !!l.extra;
+		const slL = sides.L && sleverOf(st, sides.L, sh), slR = sides.R && sleverOf(st, sides.R, sh);
 		const turned = slL ? "L" : slR ? "R" : null;
 		const sl = slL || slR;
 		const cur = turned ? sides[turned] : l.pos;
-		const r = act(cur);
+		const r = act(cur, sh);
 		const sig = st.signals.find(s => key(s.pos) === key(cur));
 		const clear = !!(r && r.state === "set" && !r.waiting && !st.all_stop) || !!(sig && sig.aspect !== "red");
 		let state = "";
@@ -232,11 +242,13 @@ function renderRelayBoard() {
 		else if (r && r.state === "set" && r.waiting) state = `<span class="timer">${st.all_stop ? "一斉停止" : "転換中"}</span>`;
 		else if (sl && sl.used && !r) state = `<span class="timer dim">復位してください</span>`;
 		else if (sl && !sl.used) state = `<span class="timer">着点を押す</span>`;
-		const keys = Object.values(sides).map(key);
-		const name = l.pair ? `${l.no}L ${esc(signalLabel(st, l.left.pos))}<br>${l.no}R ${esc(signalLabel(st, l.right.pos))}` : esc(signalLabel(st, l.pos));
-		const tip = l.pair ? `左＝${signalLabel(st, l.left.pos)}、右＝${signalLabel(st, l.right.pos)}（◀ ▶ で倒す）` : `${signalLabel(st, l.pos)}：${sides.L ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）`;
-		const color = l.shunt ? LEVER_WHITE : LEVER_RED;
-		html += `<div class="rlever ${relayStart() && keys.includes(key(relayStart().pos)) ? "sel" : ""} ${keys.includes(hoverLever) ? "hl" : ""}" data-sl="${key(l.pos)}" data-keys="${keys.join("|")}"
+		const keys = Object.values(sides).map(p => leverKey(p, sh));
+		const kind = sh ? (l.color === "G" ? "入換標識" : "入換信号機") : "";
+		const name = l.pair ? `${l.no}L ${esc(signalLabel(st, l.left.pos))}<br>${l.no}R ${esc(signalLabel(st, l.right.pos))}` : esc(signalLabel(st, l.pos)) + (sh ? `<br>${kind}` : "");
+		const tip = l.pair ? `左＝${signalLabel(st, l.left.pos)}、右＝${signalLabel(st, l.right.pos)}（◀ ▶ で倒す）` : `${signalLabel(st, l.pos)}${sh ? "の" + kind + "てこ" + (l.color === "G" ? "（在線の手前まで進路が取れる）" : "") : ""}：${sides.L ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）`;
+		const color = sh ? (l.color === "G" ? LEVER_GREEN : LEVER_WHITE) : l.shunt ? LEVER_WHITE : LEVER_RED;
+		const rs = relayStart();
+		html += `<div class="rlever ${rs && keys.includes(leverKey(rs.pos, rs.shunt)) ? "sel" : ""} ${keys.includes(hoverLever) ? "hl" : ""}" data-sl="${leverKey(l.pos, sh)}" data-keys="${keys.join(";")}" data-shunt="${sh ? 1 : ""}"
 			data-left="${sides.L ? key(sides.L) : ""}" data-right="${sides.R ? key(sides.R) : ""}" title="${esc(tip)}">
 			<div class="lamps">${lamp(turned === "L", "#f4f1e6")}${lamp(clear, "var(--green)")}${lamp(!clear, "var(--red)", "small")}${lamp(turned === "R", "#f4f1e6")}</div>
 			${knob(color, turned === "L" ? -40 : turned === "R" ? 40 : 0, "", l.no)}
@@ -272,6 +284,7 @@ function renderRelayBoard() {
 	<div class="rlegend">
 		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>
 		<div>${lamp(true, "#f4f1e6")} てこが反位（ひねった側）</div>
+		<div>てこの色：赤＝信号機（場内・出発）、白＝入換信号機、緑＝入換標識（在線の手前まで進路が取れる）、黒＝転てつ</div>
 		<div>${lamp(true, "var(--green)")} 信号進行　／　転てつてこ：ポイントの向き（N 定位・R 反位）</div>
 		<div>${lamp(true, "var(--red)")} 信号停止　／　一斉停止中</div>
 		<div>${lamp(true, "var(--green)", "blink")} 点滅：ポイント転換中・時素中</div>
@@ -282,19 +295,20 @@ function renderRelayBoard() {
 	for (const d of box.querySelectorAll("[data-sl]")) {
 		const posOf = (k) => k ? k.split(",").map(Number) : null;
 		const sides = { L: posOf(d.dataset.left), R: posOf(d.dataset.right) };
-		const turnedSide = () => ["L", "R"].find(sd => sides[sd] && sleverOf(st, sides[sd]));
+		const sh = !!d.dataset.shunt;
+		const turnedSide = () => ["L", "R"].find(sd => sides[sd] && sleverOf(st, sides[sd], sh));
 		// the knob: back to normal, or turn to its only side (a shared lever needs ◀ / ▶)
 		d.querySelector(".knob").addEventListener("click", () => {
 			const t = turnedSide();
-			if (t) { turnSignalLever(sides[t], "N"); return; }
+			if (t) { turnSignalLever(sides[t], "N", sh); return; }
 			if (sides.L && sides.R) { toast("◀ ▶ で倒す方向を選んでください", true); return; }
 			const sd = sides.L ? "L" : "R";
-			turnSignalLever(sides[sd], sd);
+			turnSignalLever(sides[sd], sd, sh);
 		});
 		for (const b of d.querySelectorAll("[data-side]")) b.addEventListener("click", () => {
 			const sd = b.dataset.side;
 			if (!sides[sd]) return;
-			turnSignalLever(sides[sd], turnedSide() === sd ? "N" : sd);
+			turnSignalLever(sides[sd], turnedSide() === sd ? "N" : sd, sh);
 		});
 		d.addEventListener("mouseenter", () => setHoverLever(d.dataset.keys));
 		d.addEventListener("mouseleave", () => setHoverLever(null));
@@ -351,6 +365,12 @@ function renderStationCfg() {
 				<option value="A" ${v === "A" ? "selected" : ""}>自動（${autoLeverSide(st, l.pos) === "L" ? "左" : "右"}）</option>
 				<option value="L" ${v === "L" ? "selected" : ""}>左</option><option value="R" ${v === "R" ? "selected" : ""}>右</option></select></label>`;
 		}).join("")}</div>
+		<div class="hint" style="margin-top:6px"><b>入換てこ</b>：信号・出発点に、別に入換用のてこを付けます（例：番線から留置線への入換）。白＝入換信号機、緑＝入換標識（在線している線路の手前まで進路が取れる）。</div>
+		<div class="sidegrid">${signalLevers(st).filter(l => !l.extra).flatMap(l => l.pair ? [l.left, l.right] : [l]).filter(s => !s.shunt).map(s => {
+			const c = shuntColor(st, s.pos) || "N";
+			return `<label>${esc(signalLabel(st, s.pos))}<select data-lvshunt="${key(s.pos)}">
+				<option value="N" ${c === "N" ? "selected" : ""}>なし</option><option value="W" ${c === "W" ? "selected" : ""}>白（入換信号機）</option><option value="G" ${c === "G" ? "selected" : ""}>緑（入換標識）</option></select></label>`;
+		}).join("")}</div>
 		<div class="hint" style="margin-top:6px"><b>信号てこをまとめる</b>：1本のてこで、左に倒すと一方、右に倒すと他方の信号を扱います（例：上り出発・下り出発）。</div>
 		${(st.pairs || []).map(p => { const lv = leverOfPos(st, p[0]).lever; return `<div class="row"><span>${lv.no}L ${esc(signalLabel(st, p[0]))}　／　${lv.no}R ${esc(signalLabel(st, p[1]))}</span><button data-unpair="${key(p[0])}">解除</button></div>`; }).join("")}
 		${(() => {
@@ -370,6 +390,8 @@ function renderStationCfg() {
 		if (kind === 1 && !confirm("継電連動（上級者向け）に切り替えますか？\n信号てこをひねってから着点ボタンを押す扱いになり、転換時間・時素があります。ショートカットは使えなくなります。")) return;
 		command(cfgCommand(st, { kind }), kind ? "継電連動に切替" : "電子連動に切替");
 	});
+	for (const c of box.querySelectorAll("[data-lvshunt]")) c.addEventListener("change", () =>
+		command(`lv_shunt,${st.id},${c.dataset.lvshunt},${c.value}`, "入換てこ"));
 	for (const c of box.querySelectorAll("[data-lvside]")) c.addEventListener("change", () =>
 		command(`lv_side,${st.id},${c.dataset.lvside},${c.value}`, "てこを倒す向き"));
 	for (const b of box.querySelectorAll("[data-unpair]")) b.addEventListener("click", () => command(`lv_unpair,${st.id},${b.dataset.unpair}`, "てこのまとめを解除"));
@@ -390,14 +412,16 @@ function renderStationCfg() {
 }
 
 // state of a signal lever for drawing it (board and map)
-function leverView(st, pos) {
-	const { lever: l, side } = leverOfPos(st, pos);
-	const sl = sleverOf(st, pos);
-	const r = status.routes.find(x => key(x.start) === key(pos) && x.state !== "idle");
+function leverView(st, pos, sh = false) {
+	const { lever: main, side } = leverOfPos(st, pos);
+	const l = sh ? (signalLevers(st).find(x => x.extra && key(x.pos) === key(pos)) || main) : main;
+	const sl = sleverOf(st, pos, sh);
+	const r = status.routes.find(x => key(x.start) === key(pos) && !!x.shunt === sh && x.state !== "idle");
 	const sig = st.signals.find(s => key(s.pos) === key(pos));
 	const clear = !!(r && r.state === "set" && !r.waiting && !st.all_stop) || !!(sig && sig.aspect !== "red");
 	const state = r && r.state === "releasing" ? `時素 ${r.release_in}秒` : r && r.state === "set" && r.waiting ? (st.all_stop ? "一斉停止" : "転換中") :
 		sl && sl.used && !r ? "復位してください" : sl && !sl.used ? "着点を押す" : "";
-	const shunt = side ? (side === "L" ? l.left.shunt : l.right.shunt) : l.shunt;
-	return { no: side ? l.no + side : l.no, shunt, sl, clear, state, angle: sl ? (sl.side === "L" ? -45 : 45) : 0, blink: !!(r && (r.state === "releasing" || r.waiting)) };
+	const shunt = sh || (side ? (side === "L" ? l.left.shunt : l.right.shunt) : l.shunt);
+	const color = sh ? (shuntColor(st, pos) === "G" ? LEVER_GREEN : LEVER_WHITE) : shunt ? LEVER_WHITE : LEVER_RED;
+	return { no: side && !sh ? l.no + side : l.no, shunt, color, sl, clear, state, angle: sl ? (sl.side === "L" ? -45 : 45) : 0, blink: !!(r && (r.state === "releasing" || r.waiting)) };
 }

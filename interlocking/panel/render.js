@@ -173,6 +173,7 @@ function renderMap() {
 		if (mapLevers && interlocked) {
 			// relay panel: the signal lever itself, beside the track
 			mapKnob(t.p, x, y, dx, dy);
+			if (shuntColor(st, t.p)) mapKnob(t.p, x - dx * 20 * sc, y - dy * 20 * sc, dx, dy, true);
 			continue;
 		}
 		const grp = el("g", { class: "clickable" }, g);
@@ -238,6 +239,8 @@ function renderMap() {
 		});
 		layout.exits.forEach((x, i) => button("x" + i, exitName(st, i), x.tile, SV(x.dir)[0] * CELL * .9, SV(x.dir)[1] * CELL * .9));
 		for (const t of layout.depots) button("d" + key(t.p), "車庫", t, 0, -CELL * .7);
+		// up to a train standing on the track (手前): only offered when such a route can be set
+		for (const [id, d] of dests) if (id.startsWith("n")) button(id, d.label, d.path[d.path.length - 1], 0, 0);
 		if (start) {
 			const t = tileIndex.get(key(start.pos));
 			if (t) el("circle", { cx: cx(t.p), cy: cy(t.p), r: 16 * sc, fill: "none", stroke: "var(--yellow)", "stroke-width": 3, class: "blink", "pointer-events": "none" }, g);
@@ -253,6 +256,7 @@ function renderMap() {
 			// relay panel: the lever beside the platform end (left of the direction of leaving)
 			const [dx, dy] = SV(startTravelDir(st, d.pos) || E);
 			mapKnob(d.pos, cx(t.p) + dy * 12 * sc, cy(t.p) - dx * 12 * sc, dx, dy);
+			if (shuntColor(st, d.pos)) mapKnob(d.pos, cx(t.p) + dy * 12 * sc - dx * 20 * sc, cy(t.p) - dx * 12 * sc - dy * 20 * sc, dx, dy, true);
 			continue;
 		}
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
@@ -291,14 +295,15 @@ function renderMap() {
 	}
 
 	// a signal lever drawn on the map (relay panel): knob, aspect lamp ahead, number
-	function mapKnob(pos, x, y, dx, dy) {
-		const v = leverView(st, pos);
+	function mapKnob(pos, x, y, dx, dy, sh = false) {
+		const v = leverView(st, pos, sh);
+		const mk = sh ? key(pos) + "|S" : key(pos);
 		const k = .42 * sc;              // the lever of the board, scaled down
 		const r = 22 * k;                // radius of its base
-		const grp = el("g", { class: "mapknob" + (hoverLever === key(pos) ? " hl" : ""), "data-mk": key(pos) }, g);
+		const grp = el("g", { class: "mapknob" + (hoverLever === mk ? " hl" : ""), "data-mk": mk }, g);
 		el("circle", { cx: x, cy: y, r: r + 3, class: "ring" }, grp);
 		const lg = el("g", { transform: `translate(${x - 30 * k} ${y - 40 * k}) scale(${k})` }, grp);
-		lg.innerHTML = leverShapes(v.shunt ? LEVER_WHITE : LEVER_RED, v.angle ? Math.sign(v.angle) * 40 : 0, v.no);
+		lg.innerHTML = leverShapes(v.color, v.angle ? Math.sign(v.angle) * 40 : 0, v.no);
 		const lx = x + dx * (r + 4 * sc), ly = y + dy * (r + 4 * sc);
 		el("circle", { cx: lx, cy: ly, r: 3.2 * sc, fill: v.clear ? "var(--green)" : "var(--red)", stroke: "#000", "stroke-width": .8, class: v.blink ? "blink" : "" }, grp);
 		block(x - r - 2, y - r - 2, x + r + 2, y + r + 2, 3);
@@ -306,9 +311,9 @@ function renderMap() {
 		// the number is on the plate of the lever; at small sizes also beside it
 		if (sc < 1.6) label(grp, x, y, r + 1, String(v.no), { "font-size": Math.max(10, 10 * sc), "font-weight": 700, fill: "#e8e4d4" });
 
-		grp.appendChild(el("title", {})).textContent = `${v.no} ${signalLabel(st, pos)}：${v.sl ? "反位（もう一度押すと定位）" : "押すと開通方向にひねる"}${v.state ? "　" + v.state : ""}`;
-		grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null); });
-		grp.addEventListener("mouseenter", () => setHoverLever(key(pos)));
+		grp.appendChild(el("title", {})).textContent = `${v.no} ${signalLabel(st, pos)}${sh ? " 入換てこ" : ""}：${v.sl ? "反位（もう一度押すと定位）" : "押すと開通方向にひねる"}${v.state ? "　" + v.state : ""}`;
+		grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null, sh); });
+		grp.addEventListener("mouseenter", () => setHoverLever(mk));
 		grp.addEventListener("mouseleave", () => setHoverLever(null));
 	}
 

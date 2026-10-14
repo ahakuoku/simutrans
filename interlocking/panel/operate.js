@@ -88,6 +88,8 @@ function findDestinations(start) {
 		const g = new Set(own.map(x => key(x.p)));
 		firstDirs = DIRS.filter(d => (t0.r & d) && neighbour(t0, d) && !g.has(key(neighbour(t0, d).p)));
 	}
+	// up to a train standing on a platform or siding: electronic panel, or a green shunting lever (入換標識)
+	const allowShort = !isRelay() || (start.shunt && start.green);
 	const extend = (path, d, gi, tilesOf) => {
 		// on to the far end of the platform (or of the siding)
 		const g = new Set((tilesOf || layout.groups[gi]).map(x => key(x.p)));
@@ -111,18 +113,27 @@ function findDestinations(start) {
 			if (!stationTiles.has(k)) continue;
 			if (!loose && blocked.has(k)) continue;
 			const pathTo = () => { const p = []; for (let n = cur; n; n = n.prev) p.unshift(n.t); return p; };
-			const record = (id, label, path) => { if (!res.has(id) || (!loose && !res.get(id).free)) { if (!res.has(id) || !loose) res.set(id, { label, path, free: !loose }); } };
+			const record = (id, label, path, free = !loose) => { if (!res.has(id) || (free && !res.get(id).free)) { if (!res.has(id) || free) res.set(id, { label, path, free }); } };
+			// a platform or siding: to its far end; with a train standing on it also "up to the train" (手前)
+			const target = (id, label, full) => {
+				const firstBlocked = full.findIndex((x, i) => i > 0 && blocked.has(key(x.p)));
+				if (!(loose && res.has(id))) record(id, label, full, !loose && firstBlocked < 0);
+				const entry = pathTo().length - 1;
+				if (allowShort && firstBlocked > entry && !(loose && res.has("n" + id))) record("n" + id, label + "手前", full.slice(0, firstBlocked), !loose);
+			};
 			if (layout.groupOf.has(k) && layout.groupOf.get(k) !== startGroup) {
 				const gi = layout.groupOf.get(k);
-				if (!(loose && res.has("p" + gi))) record("p" + gi, platformName(st, gi), extend(pathTo(), cur.d, gi));
+				target("p" + gi, platformName(st, gi), extend(pathTo(), cur.d, gi));
 				continue;
 			}
 			if (layout.sidingOf.has(k) && layout.sidingOf.get(k) !== startSiding) {
 				const si = layout.sidingOf.get(k);
-				if (!(loose && res.has("s" + si))) record("s" + si, sidingName(st, si), extend(pathTo(), cur.d, si, layout.sidings[si].tiles));
+				target("s" + si, sidingName(st, si), extend(pathTo(), cur.d, si, layout.sidings[si].tiles));
 				continue;
 			}
 			if (exitAt.has(k)) {
+				// a shunting lever leads to platforms, sidings and depots only
+				if (start.shunt) continue;
 				const i = exitAt.get(k);
 				if (!(loose && res.has("x" + i))) record("x" + i, exitName(st, i), pathTo());
 				// the exit tile may also lead on (e.g. a junction at the edge): do not continue
