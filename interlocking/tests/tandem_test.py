@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Experiment: two trains one behind the other in a siding built as a stop (no change in the OTRP core).
+Two trains one behind the other in a siding built as a stop (no change in the OTRP core).
 
 Scenario il-tandem: like il-test, but the siding stop is (12,6)-(12,9) (dead end at (12,9)) and there
 are two trains in the depot. Both trains have the schedule [siding (12,9), terminus B (14,5)].
@@ -10,7 +10,10 @@ are two trains in the depot. Both trains have the schedule [siding (12,9), termi
   3. B must arrive and be served behind A; both are held by the virtual shunting signal of the siding
   4. B leaves first (it stands nearer to the exit), then A
 
-Usage: exp_tandem.py --sim build/default/sim --workdir <dir>   (workdir as for run_test.py, with il-tandem linked)
+A route up to a standing train needs a green shunting lever (入換標識) or a pink calling-on lever (誘導).
+
+Usage: tandem_test.py --sim build/default/sim --workdir <dir> [--relay] [--lever G|P]
+       (workdir as for run_test.py, with il-tandem linked)
 """
 import argparse, json, os, sys, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -34,7 +37,7 @@ def run(args):
         relay = args.relay
         if relay:
             check(p.cmd(f"st_cfg,{sid},1,0,5,3,2")["ok"], "relay interlocking (throwing 2 s)")
-            check(p.cmd(f"lv_shunt,{sid},3,5,0,G")["ok"], "S1 gets a green shunting lever (入換標識)")
+        check(p.cmd(f"lv_shunt,{sid},3,5,0,{args.lever}")["ok"], f"S1 gets a {'green shunting' if args.lever == 'G' else 'pink calling-on'} lever")
         def turn(lever):
             if relay:
                 r = p.cmd(f"sl_turn,{sid},3,5,0,R" + (",S" if lever == "S" else ""))
@@ -73,15 +76,13 @@ def run(args):
         turn("M")
         res = p.cmd(f"set_path,{sid},{into(9)},B-far")
         check(not res["ok"], f"a route to the far end is refused while A stands there ({res.get('error')})")
-        if relay:
-            res = p.cmd(f"set_path,{sid},{into(free_y)},B")
-            check(not res["ok"] and res["error"] == "only a shunting indicator lever leads up to a standing train", f"main lever: not up to the standing train ({res.get('error')})")
-            back("M")
-            turn("S")
-        check(p.cmd(f"set_path,{sid},{into(free_y)},B")["ok"], f"route S1 -> (12,{free_y}) in front of A" + (" with the green shunting lever" if relay else ""))
-        if relay:
-            r = [x for x in p.status()["routes"] if x.get("temp")][0]
-            check(r["shunt"], "the route is a shunting route")
+        res = p.cmd(f"set_path,{sid},{into(free_y)},B")
+        check(not res["ok"] and res["error"] == "only a shunting indicator lever leads up to a standing train", f"the signal lever does not lead up to the standing train ({res.get('error')})")
+        back("M")
+        turn("S")
+        check(p.cmd(f"{'set_path' if relay else 'set_path_s'},{sid},{into(free_y)},B")["ok"], f"route S1 -> (12,{free_y}) in front of A with the {args.lever} lever")
+        r = [x for x in p.status()["routes"] if x.get("temp")][0]
+        check(r["shunt"] == (args.lever == "G"), "green: a shunting route / pink: a train route")
         trace = []
         def b_arrived():
             c = conv(cb)
@@ -110,7 +111,7 @@ def run(args):
         held = sorted(tuple(t["p"]) for t in tracks() if t.get("c") and t["p"][0] == 12 and t["p"][1] >= 6)
         free_y = min(y for (x, y, z) in held) - 1
         turn("S")
-        check(p.cmd(f"set_path,{sid},{into(free_y)},C")["ok"], f"route S1 -> (12,{free_y}) in front of A")
+        check(p.cmd(f"{'set_path' if relay else 'set_path_s'},{sid},{into(free_y)},C")["ok"], f"route S1 -> (12,{free_y}) in front of A")
         ev = p.wait_event(lambda e: e["type"] == "too_long", 60)
         check(ev["need"] > ev["room"], f"C is not admitted: needs {ev['need']} tiles, {ev['room']} free")
         time.sleep(3)
@@ -121,16 +122,17 @@ def run(args):
             game.wait(10)
         except Exception:
             game.kill()
-    print("EXPERIMENT DONE")
+    print("TANDEM TEST DONE")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", required=True)
     ap.add_argument("--workdir", required=True)
-    ap.add_argument("--relay", action="store_true", help="operate it on a relay panel with a green shunting lever")
+    ap.add_argument("--relay", action="store_true", help="operate it on a relay panel")
+    ap.add_argument("--lever", default="G", choices=["G", "P"], help="green shunting lever or pink calling-on lever")
     try:
         run(ap.parse_args())
     except AssertionError as e:
-        print("EXPERIMENT STOPPED:", e)
+        print("TEST FAILED:", e)
         sys.exit(1)

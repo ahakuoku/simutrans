@@ -115,7 +115,7 @@ function relayStart() {
 	const free = (st.slevers || []).filter(l => !l.used);
 	const sel = free.find(l => leverKey(l.pos, l.shunt) === relaySel) || free[free.length - 1];
 	if (!sel) return null;
-	return { pos: sel.pos, dep: isDepartureAnchor(st, sel.pos), shunt: !!sel.shunt, green: !!sel.shunt && shuntColor(st, sel.pos) === "G" };
+	return { pos: sel.pos, dep: isDepartureAnchor(st, sel.pos), shunt: !!sel.shunt, color: sel.shunt ? shuntColor(st, sel.pos) : null };
 }
 
 function turnSignalLever(pos, side, sh = false) {
@@ -198,7 +198,9 @@ function barKnob(color, angle, label) {
 		${label ? `<text x="30" y="58" font-size="9" text-anchor="middle" fill="#cfd6cf">${label}</text>` : ""}
 	</svg>`;
 }
-const LEVER_RED = "#c8323a", LEVER_WHITE = "#ecebe4", LEVER_BLACK = "#2b2f33", LEVER_GREEN = "#2f8f4e";
+const LEVER_RED = "#c8323a", LEVER_WHITE = "#ecebe4", LEVER_BLACK = "#2b2f33", LEVER_GREEN = "#2f8f4e", LEVER_PINK = "#e07aa8";
+const extraColor = (c) => c === "G" ? LEVER_GREEN : c === "P" ? LEVER_PINK : LEVER_WHITE;
+const extraKind = (c) => c === "G" ? "入換標識" : c === "P" ? "誘導信号" : "入換信号機";
 
 // the two side buttons under a knob (the knob itself is the middle)
 const sideBtns = (l, r, disL, disR, onL, onR) =>
@@ -243,10 +245,10 @@ function renderRelayBoard() {
 		else if (sl && sl.used && !r) state = `<span class="timer dim">復位してください</span>`;
 		else if (sl && !sl.used) state = `<span class="timer">着点を押す</span>`;
 		const keys = Object.values(sides).map(p => leverKey(p, sh));
-		const kind = sh ? (l.color === "G" ? "入換標識" : "入換信号機") : "";
+		const kind = sh ? extraKind(l.color) : "";
 		const name = l.pair ? `${l.no}L ${esc(signalLabel(st, l.left.pos))}<br>${l.no}R ${esc(signalLabel(st, l.right.pos))}` : esc(signalLabel(st, l.pos)) + (sh ? `<br>${kind}` : "");
-		const tip = l.pair ? `左＝${signalLabel(st, l.left.pos)}、右＝${signalLabel(st, l.right.pos)}（◀ ▶ で倒す）` : `${signalLabel(st, l.pos)}${sh ? "の" + kind + "てこ" + (l.color === "G" ? "（在線の手前まで進路が取れる）" : "") : ""}：${sides.L ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）`;
-		const color = sh ? (l.color === "G" ? LEVER_GREEN : LEVER_WHITE) : l.shunt ? LEVER_WHITE : LEVER_RED;
+		const tip = l.pair ? `左＝${signalLabel(st, l.left.pos)}、右＝${signalLabel(st, l.right.pos)}（◀ ▶ で倒す）` : `${signalLabel(st, l.pos)}${sh ? "の" + kind + "てこ" + (l.color === "G" || l.color === "P" ? "（在線の手前まで進路が取れる）" : "") : ""}：${sides.L ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）`;
+		const color = sh ? extraColor(l.color) : l.shunt ? LEVER_WHITE : LEVER_RED;
 		const rs = relayStart();
 		html += `<div class="rlever ${rs && keys.includes(leverKey(rs.pos, rs.shunt)) ? "sel" : ""} ${keys.includes(hoverLever) ? "hl" : ""}" data-sl="${leverKey(l.pos, sh)}" data-keys="${keys.join(";")}" data-shunt="${sh ? 1 : ""}"
 			data-left="${sides.L ? key(sides.L) : ""}" data-right="${sides.R ? key(sides.R) : ""}" title="${esc(tip)}">
@@ -284,7 +286,7 @@ function renderRelayBoard() {
 	<div class="rlegend">
 		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>
 		<div>${lamp(true, "#f4f1e6")} てこが反位（ひねった側）</div>
-		<div>てこの色：赤＝信号機（場内・出発）、白＝入換信号機、緑＝入換標識（在線の手前まで進路が取れる）、黒＝転てつ</div>
+		<div>てこの色：赤＝信号機（場内・出発）、白＝入換信号機、緑＝入換標識、ピンク＝誘導信号（緑・ピンクは在線の手前まで進路が取れる）、黒＝転てつ</div>
 		<div>${lamp(true, "var(--green)")} 信号進行　／　転てつてこ：ポイントの向き（N 定位・R 反位）</div>
 		<div>${lamp(true, "var(--red)")} 信号停止　／　一斉停止中</div>
 		<div>${lamp(true, "var(--green)", "blink")} 点滅：ポイント転換中・時素中</div>
@@ -365,12 +367,6 @@ function renderStationCfg() {
 				<option value="A" ${v === "A" ? "selected" : ""}>自動（${autoLeverSide(st, l.pos) === "L" ? "左" : "右"}）</option>
 				<option value="L" ${v === "L" ? "selected" : ""}>左</option><option value="R" ${v === "R" ? "selected" : ""}>右</option></select></label>`;
 		}).join("")}</div>
-		<div class="hint" style="margin-top:6px"><b>入換てこ</b>：信号・出発点に、別に入換用のてこを付けます（例：番線から留置線への入換）。白＝入換信号機、緑＝入換標識（在線している線路の手前まで進路が取れる）。</div>
-		<div class="sidegrid">${signalLevers(st).filter(l => !l.extra).flatMap(l => l.pair ? [l.left, l.right] : [l]).filter(s => !s.shunt).map(s => {
-			const c = shuntColor(st, s.pos) || "N";
-			return `<label>${esc(signalLabel(st, s.pos))}<select data-lvshunt="${key(s.pos)}">
-				<option value="N" ${c === "N" ? "selected" : ""}>なし</option><option value="W" ${c === "W" ? "selected" : ""}>白（入換信号機）</option><option value="G" ${c === "G" ? "selected" : ""}>緑（入換標識）</option></select></label>`;
-		}).join("")}</div>
 		<div class="hint" style="margin-top:6px"><b>信号てこをまとめる</b>：1本のてこで、左に倒すと一方、右に倒すと他方の信号を扱います（例：上り出発・下り出発）。</div>
 		${(st.pairs || []).map(p => { const lv = leverOfPos(st, p[0]).lever; return `<div class="row"><span>${lv.no}L ${esc(signalLabel(st, p[0]))}　／　${lv.no}R ${esc(signalLabel(st, p[1]))}</span><button data-unpair="${key(p[0])}">解除</button></div>`; }).join("")}
 		${(() => {
@@ -379,6 +375,12 @@ function renderStationCfg() {
 			const opts = free.map(l => `<option value="${key(l.pos)}">${l.no} ${esc(signalLabel(st, l.pos))}</option>`).join("");
 			return `<div class="row">左<select id="pairL">${opts}</select>右<select id="pairR">${opts}</select><button id="pairAdd">まとめる</button></div>`;
 		})()}` : ""}
+		<div class="hint" style="margin-top:6px"><b>入換てこ</b>：信号・出発点に、別に入換用のてこを付けます（例：番線から留置線への入換）。白＝入換信号機、緑＝入換標識、ピンク＝誘導信号（緑とピンクは、列車が止まっている線路の手前まで進路が取れる。ピンクは列車の進路扱い）。</div>
+		<div class="sidegrid">${signalLevers(st).filter(l => !l.extra).flatMap(l => l.pair ? [l.left, l.right] : [l]).filter(s => !s.shunt).map(s => {
+			const c = shuntColor(st, s.pos) || "N";
+			return `<label>${esc(signalLabel(st, s.pos))}<select data-lvshunt="${key(s.pos)}">
+				<option value="N" ${c === "N" ? "selected" : ""}>なし</option><option value="W" ${c === "W" ? "selected" : ""}>白（入換信号機）</option><option value="G" ${c === "G" ? "selected" : ""}>緑（入換標識）</option><option value="P" ${c === "P" ? "selected" : ""}>ピンク（誘導信号）</option></select></label>`;
+		}).join("")}</div>
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;
@@ -422,6 +424,6 @@ function leverView(st, pos, sh = false) {
 	const state = r && r.state === "releasing" ? `時素 ${r.release_in}秒` : r && r.state === "set" && r.waiting ? (st.all_stop ? "一斉停止" : "転換中") :
 		sl && sl.used && !r ? "復位してください" : sl && !sl.used ? "着点を押す" : "";
 	const shunt = sh || (side ? (side === "L" ? l.left.shunt : l.right.shunt) : l.shunt);
-	const color = sh ? (shuntColor(st, pos) === "G" ? LEVER_GREEN : LEVER_WHITE) : shunt ? LEVER_WHITE : LEVER_RED;
+	const color = sh ? extraColor(shuntColor(st, pos)) : shunt ? LEVER_WHITE : LEVER_RED;
 	return { no: side && !sh ? l.no + side : l.no, shunt, color, sl, clear, state, angle: sl ? (sl.side === "L" ? -45 : 45) : 0, blink: !!(r && (r.state === "releasing" || r.waiting)) };
 }

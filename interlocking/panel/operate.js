@@ -89,7 +89,8 @@ function findDestinations(start) {
 		firstDirs = DIRS.filter(d => (t0.r & d) && neighbour(t0, d) && !g.has(key(neighbour(t0, d).p)));
 	}
 	// up to a train standing on a platform or siding: electronic panel, or a green shunting lever (入換標識)
-	const allowShort = !isRelay() || (start.shunt && start.green);
+	// (a shunting lever: start.shunt, its colour start.color; pink = calling-on (誘導), a train route)
+	const allowShort = !!start.shunt && (start.color === "G" || start.color === "P");
 	const extend = (path, d, gi, tilesOf) => {
 		// on to the far end of the platform (or of the siding)
 		const g = new Set((tilesOf || layout.groups[gi]).map(x => key(x.p)));
@@ -133,7 +134,7 @@ function findDestinations(start) {
 			}
 			if (exitAt.has(k)) {
 				// a shunting lever leads to platforms, sidings and depots only
-				if (start.shunt) continue;
+				if (start.shunt && start.color !== "P") continue;
 				const i = exitAt.get(k);
 				if (!(loose && res.has("x" + i))) record("x" + i, exitName(st, i), pathTo());
 				// the exit tile may also lead on (e.g. a junction at the edge): do not continue
@@ -168,7 +169,7 @@ function findDestinations(start) {
 // start of the next route: the selected start lever (electronic) or the turned signal lever (relay)
 function currentStart() { return isRelay() ? relayStart() : nxStart; }
 
-function startClicked(pos, dep) {
+function startClicked(pos, dep, sh = false) {
 	const st = station();
 	if (isRelay()) { turnSignalLever(pos, sleverOf(st, pos) ? "N" : null); return; }
 	if (!st.manual) { toast("自動モードです。「扱者」に切り替えてください", true); return; }
@@ -181,7 +182,7 @@ function startClicked(pos, dep) {
 		render();
 		return;
 	}
-	nxStart = nxStart && key(nxStart.pos) === key(pos) ? null : { pos, dep };
+	nxStart = nxStart && key(nxStart.pos) === key(pos) && !!nxStart.shunt === sh ? null : { pos, dep, shunt: sh, color: sh ? shuntColor(st, pos) : null };
 	render();
 }
 
@@ -192,8 +193,10 @@ function destinationClicked(id) {
 	const d = findDestinations(start).get(id);
 	if (!d) { toast("この着点へは進路が引けません（線路の向き・ポイントを確認）"); return; }
 	if (!d.free) { toast("在線しているか、ほかの進路と重なるため引けません"); return; }
-	const name = `${signalLabel(st, start.pos)}→${d.label}`;
-	command(`set_path,${st.id},${d.path.map(t => t.p.join(":")).join(";")},${name}`, "進路設定 " + name);
+	const name = `${signalLabel(st, start.pos)}${start.shunt ? (start.color === "P" ? "誘導" : "入換") : ""}→${d.label}`;
+	// electronic panel: say that the shunting / calling-on lever of the start is used
+	const cmdName = !isRelay() && start.shunt ? "set_path_s" : "set_path";
+	command(`${cmdName},${st.id},${d.path.map(t => t.p.join(":")).join(";")},${name}`, "進路設定 " + name);
 	nxStart = null;
 	render();
 }

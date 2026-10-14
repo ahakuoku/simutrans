@@ -271,6 +271,19 @@ function renderMap() {
 		label(grp, x, y, r, signalLabel(st, d.pos), { "font-size": Math.max(11, 12 * sc), "font-weight": 700, fill: "#fff" });
 		grp.appendChild(el("title", {})).textContent = `${d.shunt ? "仮想入換信号" : "仮想出発信号"} ${signalLabel(st, d.pos)} (${d.pos.join(", ")})` + (d.train ? " " + d.train : "");
 	}
+	// electronic panel: the shunting / calling-on lever of a start point, a small button behind it
+	if (st && !isRelay() && tab === "run") for (const x of st.shunt_levers || []) {
+		const t = tileIndex.get(key(x.pos));
+		if (!t || !isVisible(t)) continue;
+		const [dx, dy] = SV(startTravelDir(st, x.pos) || E);
+		const bx = cx(t.p) - dx * 16 * sc + dy * 9 * sc, by = cy(t.p) - dy * 16 * sc - dx * 9 * sc, r = 5.5 * sc;
+		const sel = nxStart && nxStart.shunt && key(nxStart.pos) === key(x.pos);
+		const grp = el("g", { class: "clickable", "data-shuntstart": key(x.pos) }, g);
+		el("rect", { x: bx - r, y: by - r, width: 2 * r, height: 2 * r, rx: 2, fill: extraColor(x.color), stroke: sel ? "var(--yellow)" : "#111", "stroke-width": sel ? 3 : 1.2 }, grp);
+		block(bx - r, by - r, bx + r, by + r, 3);
+		grp.appendChild(el("title", {})).textContent = `${signalLabel(st, x.pos)} の${extraKind(x.color)}（押してから着点ボタン）`;
+		grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(x.pos, isDepartureAnchor(st, x.pos), true); });
+	}
 	// halt names
 	const named = new Set();
 	for (const t of tiles) {

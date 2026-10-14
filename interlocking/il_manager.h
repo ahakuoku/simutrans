@@ -247,7 +247,8 @@ private:
 	const char *parse_path(il_station_t *st, const char *path, vector_tpl<koord3d> &tiles) const;
 	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);
 	/// route from a tile list made on the panel (start lever + destination button)
-	const char *cmd_set_path(il_station_t *st, const char *path, const char *name);
+	/// extra: with the shunting / calling-on lever of the start (electronic panel; a relay panel knows it from the turned lever)
+	const char *cmd_set_path(il_station_t *st, const char *path, const char *name, bool extra = false);
 	/// deletes temporary routes that are no longer set or occupied
 	void purge_temp_routes();
 	/// sets point levers: "x:y:z/value/a-b.c-d;..." (empty value = automatic), all or nothing

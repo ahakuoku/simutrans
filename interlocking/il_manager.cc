@@ -781,7 +781,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "rt_def,", 7) == 0  ) {
 		max_fields = 9;
 	}
-	else if(  strncmp(buf, "set_path,", 9) == 0  ||  strncmp(buf, "rt_path,", 8) == 0  ) {
+	else if(  strncmp(buf, "set_path,", 9) == 0  ||  strncmp(buf, "set_path_s,", 11) == 0  ||  strncmp(buf, "rt_path,", 8) == 0  ) {
 		max_fields = 4;
 	}
 	else if(  strncmp(buf, "rt_name,", 8) == 0  ||  strncmp(buf, "st_sid,", 7) == 0  ) {
@@ -1101,7 +1101,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		}
 		else {
 			remove_shunt_lever(st, pos);
-			if(  col == 'W'  ||  col == 'G'  ) {
+			if(  col == 'W'  ||  col == 'G'  ||  col == 'P'  ) {
 				st->shunt_pos.append(pos);
 				st->shunt_col.append((uint8)col);
 			}
@@ -1148,7 +1148,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = cmd_signal_lever(st, pos, f[5][0], n >= 7  &&  f[6][0] == 'S' ? 1 : 0);
 		}
 	}
-	else if(  strcmp(cmd, "set_path") == 0  &&  n >= 3  ) {
+	else if(  (strcmp(cmd, "set_path") == 0  ||  strcmp(cmd, "set_path_s") == 0)  &&  n >= 3  ) {
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		if(  st == NULL  ) {
 			error = "unknown station";
@@ -1160,7 +1160,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = "station is in automatic mode";
 		}
 		else {
-			error = cmd_set_path(st, f[2], n >= 4 ? f[3] : "");
+			error = cmd_set_path(st, f[2], n >= 4 ? f[3] : "", cmd[8] == '_');
 		}
 	}
 	else if(  strcmp(cmd, "pt_set") == 0  &&  n >= 3  ) {
@@ -1593,7 +1593,7 @@ il_route_t *interlocking_manager_t::new_route(il_station_t *st, const vector_tpl
 }
 
 
-const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *path, const char *name)
+const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *path, const char *name, bool extra)
 {
 	vector_tpl<koord3d> tiles;
 	if(  const char *e = parse_path(st, path, tiles)  ) {
@@ -1614,11 +1614,19 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 			return "turn the lever back first";
 		}
 	}
+	if(  lever  ) {
+		extra = lever->lever != 0;
+	}
+	const uint8 col = st->shunt_lever(tiles[0]);
+	if(  extra  &&  !col  ) {
+		return "no shunting lever at this signal";
+	}
 	il_route_t *r = new_route(st, tiles, name, true);
-	r->shunt = lever  &&  lever->lever != 0;
+	// white / green: shunting route; pink (calling-on, 誘導): a train route
+	r->shunt = extra  &&  col != 'P';
 	const char *error = NULL;
-	if(  lever  &&  ends_behind_train(r)  &&  !(lever->lever  &&  st->shunt_lever(tiles[0]) == 'G')  ) {
-		// up to a train standing on the track: only with a shunting indicator (入換標識)
+	if(  ends_behind_train(r)  &&  !(extra  &&  (col == 'G'  ||  col == 'P'))  ) {
+		// up to a train standing on the track: only with a shunting indicator (入換標識) or a calling-on lever (誘導)
 		error = "only a shunting indicator lever leads up to a standing train";
 	}
 	if(  !error  ) {
