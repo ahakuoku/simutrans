@@ -362,7 +362,7 @@ def run(args):
         check(True, "train admitted after the emergency stop was released")
         p.wait_event(lambda e: e["type"] == "route" and e["id"] == tr["id"] and e["state"] == "idle", 120)
         lev = p.status()["stations"][0]["slevers"]
-        check(lev == [{"pos": [5, 7, 0], "side": "L", "used": True}], f"the lever stays turned after the train has passed: {lev}")
+        check(lev == [{"pos": [5, 7, 0], "side": "L", "used": True, "shunt": False}], f"the lever stays turned after the train has passed: {lev}")
         res = p.cmd(f"set_path,{sid},{spath},入換")
         check(not res["ok"] and res["error"] == "turn the lever back first", "no second route before the lever is turned back")
         check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"] and not p.status()["stations"][0]["slevers"], "lever turned back")
@@ -397,6 +397,8 @@ def run(args):
         check(p.cmd(f"sl_turn,{sid},3,5,0,L")["ok"], "S1 turned again")
         check(p.cmd(f"sl_turn,{sid},3,5,0,N")["ok"], "lever back")
         check(not p.cmd(f"lv_pair,{sid},3,5,0,8,5,0")["ok"], "a signal can be on one lever pair only")
+        check(p.cmd(f"lv_shunt,{sid},3,5,0,W")["ok"] and p.status()["stations"][0]["shunt_levers"] == [{"pos": [3, 5, 0], "color": "W"}], "white shunting lever at S1")
+        check(not p.cmd(f"sl_turn,{sid},8,5,0,R,S")["ok"], "no shunting lever where none is set")
         check(p.cmd(f"lv_side,{sid},5,7,0,L")["ok"] and p.status()["stations"][0]["sides"] == [{"pos": [5, 7, 0], "side": "L"}], "side of a lever set by hand")
 
         print("[5] rotate the map")
@@ -439,7 +441,7 @@ def run(args):
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
                                  st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
-                                 st["pairs"], st["sides"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
+                                 st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")

@@ -23,14 +23,25 @@ def run(args):
         p = Panel(PORT)
         wait_until(lambda: any(s["pos"] == [3, 5, 0] for s in p.request("signals 0 0 15 15")["signals"]), 60, "layout")
         convoys = p.request("debug_convoys")["convoys"]
-        check(len(convoys) == 2, f"two trains in the depot: {[c['id'] for c in convoys]}")
-        ca, cb = convoys[0]["id"], convoys[1]["id"]
+        check(len(convoys) == 3, f"three trains in the depot: {[c['id'] for c in convoys]}")
+        ca, cb, cc = convoys[0]["id"], convoys[1]["id"], convoys[2]["id"]
         check(p.cmd("st_new,T")["ok"], "station")
         sid = p.status()["stations"][0]["id"]
         check(p.cmd(f"sig_add,{sid},3,5,0")["ok"] and p.cmd(f"dep_add,{sid},12,9,0,S")["ok"], "S1 and the shunting signal of the siding stop")
         dep = p.status()["stations"][0]["departures"][0]
         check(dep["pos"] == [12, 6, 0], f"siding stop: leaves at {dep['pos']}, tiles {dep['tiles']}")
         check(p.cmd(f"st_mode,{sid},1")["ok"], "operator mode")
+        relay = args.relay
+        if relay:
+            check(p.cmd(f"st_cfg,{sid},1,0,5,3,2")["ok"], "relay interlocking (throwing 2 s)")
+            check(p.cmd(f"lv_shunt,{sid},3,5,0,G")["ok"], "S1 gets a green shunting lever (入換標識)")
+        def turn(lever):
+            if relay:
+                r = p.cmd(f"sl_turn,{sid},3,5,0,R" + (",S" if lever == "S" else ""))
+                check(r["ok"], f"lever {'S' if lever == 'S' else 'main'} of S1 turned ({r.get('error')})")
+        def back(lever):
+            if relay:
+                p.cmd(f"sl_turn,{sid},3,5,0,N" + (",S" if lever == "S" else ""))
         sched = "0|0|0|2|0|12,9,0,0,0,0,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|"
         main = [(x, 5, 0) for x in range(3, 13)]
         into = lambda last_y: ";".join(f"{x}:{y}:{z}" for x, y, z in main + [(12, y, 0) for y in range(6, last_y + 1)])
@@ -38,11 +49,12 @@ def run(args):
         conv = lambda cid: next(c for c in p.request("debug_convoys")["convoys"] if c["id"] == cid)
 
         print("[1] train A to the far end of the siding")
-        for cid in (ca, cb):
+        for cid in (ca, cb, cc):
             p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cid},{sched}")
         time.sleep(1)
         p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{ca}")
         wait_until(lambda: pos(ca) == (3, 5, 0), 60, "A at S1")
+        turn("M")
         check(p.cmd(f"set_path,{sid},{into(9)},A")["ok"], "route S1 -> (12,9)")
         wait_until(lambda: conv(ca)["stop"] == 1, 120, "A arrived in the siding")
         check(True, f"A arrived at {pos(ca)}")
@@ -57,9 +69,19 @@ def run(args):
         wait_until(lambda: pos(cb) == (3, 5, 0), 60, "B at S1")
         # the destination in front of A: the last free tile of the siding
         free_y = max(y for y in range(6, 10) if (12, y, 0) not in held and all((12, yy, 0) not in held for yy in range(6, y + 1)))
+        back("M")
+        turn("M")
         res = p.cmd(f"set_path,{sid},{into(9)},B-far")
         check(not res["ok"], f"a route to the far end is refused while A stands there ({res.get('error')})")
-        check(p.cmd(f"set_path,{sid},{into(free_y)},B")["ok"], f"route S1 -> (12,{free_y}) in front of A")
+        if relay:
+            res = p.cmd(f"set_path,{sid},{into(free_y)},B")
+            check(not res["ok"] and res["error"] == "only a shunting indicator lever leads up to a standing train", f"main lever: not up to the standing train ({res.get('error')})")
+            back("M")
+            turn("S")
+        check(p.cmd(f"set_path,{sid},{into(free_y)},B")["ok"], f"route S1 -> (12,{free_y}) in front of A" + (" with the green shunting lever" if relay else ""))
+        if relay:
+            r = [x for x in p.status()["routes"] if x.get("temp")][0]
+            check(r["shunt"], "the route is a shunting route")
         trace = []
         def b_arrived():
             c = conv(cb)
@@ -73,11 +95,26 @@ def run(args):
 
         print("[3] B leaves first, then A")
         out = ";".join(f"{x}:{y}:{z}" for x, y, z in [(12, 6, 0), (12, 5, 0), (13, 5, 0), (14, 5, 0)])
+        if relay:
+            p.cmd(f"sl_turn,{sid},12,6,0,L")
         check(p.cmd(f"set_path,{sid},{out},out")["ok"], "shunting route out of the siding to B")
         wait_until(lambda: pos(cb)[1] == 5 or conv(cb)["stop"] == 0, 120, "B left")
         check(True, f"B left the siding ({pos(cb)})")
         wait_until(lambda: not any(r for r in p.status()["routes"] if r.get("temp")), 120, "route released")
         check(pos(ca)[1] >= 8, f"A still waits ({pos(ca)})")
+        back("M"); back("S")
+
+        print("[4] a long train C does not fit in front of A")
+        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cc}")
+        wait_until(lambda: pos(cc) == (3, 5, 0), 90, "C at S1")
+        held = sorted(tuple(t["p"]) for t in tracks() if t.get("c") and t["p"][0] == 12 and t["p"][1] >= 6)
+        free_y = min(y for (x, y, z) in held) - 1
+        turn("S")
+        check(p.cmd(f"set_path,{sid},{into(free_y)},C")["ok"], f"route S1 -> (12,{free_y}) in front of A")
+        ev = p.wait_event(lambda e: e["type"] == "too_long", 60)
+        check(ev["need"] > ev["room"], f"C is not admitted: needs {ev['need']} tiles, {ev['room']} free")
+        time.sleep(3)
+        check(pos(cc) == (3, 5, 0), "C waits at S1")
     finally:
         game.terminate()
         try:
@@ -91,6 +128,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", required=True)
     ap.add_argument("--workdir", required=True)
+    ap.add_argument("--relay", action="store_true", help="operate it on a relay panel with a green shunting lever")
     try:
         run(ap.parse_args())
     except AssertionError as e:

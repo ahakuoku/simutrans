@@ -85,6 +85,13 @@ function build_layout()
 	local loco = vehicle_desc_x.get_available_vehicles(wt_rail).filter(@(idx, v) (!v.needs_electrification() && v.can_be_first() && v.get_power() > 0))[0]
 	ASSERT_TRUE(depot.append_vehicle(pl, convoy_x(0), loco))
 	ASSERT_TRUE(depot.append_vehicle(pl, convoy_x(0), loco))
+	// a third, long train (does not fit behind another train in the siding)
+	ASSERT_TRUE(depot.append_vehicle(pl, convoy_x(0), loco))
+	local long_cnv = depot.get_convoy_list()[2]
+	local car = vehicle_desc_x.get_available_vehicles(wt_rail).filter(@(idx, v) (!v.needs_electrification() && v.get_power() == 0 && v.get_freight().get_name() == "Passagiere"))[0]
+	for (local i = 0; i < 7; i++) {
+		depot.append_vehicle(pl, long_cnv, car)
+	}
 	// an unconnected line on a bridge across the station throat (x=10), to test the height filter of the panel
 	local bridge = bridge_desc_x.get_available_bridges(wt_rail)[0]
 	local res = command_x.build_bridge(pl, coord3d(10, 8, 0), coord3d(10, 3, 0), bridge)

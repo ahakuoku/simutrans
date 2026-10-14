@@ -47,8 +47,10 @@ struct il_route_t {
 	uint32 ready_at;
 	/// IL_RELEASING: the route is released at this tick
 	uint32 release_at;
+	/// set with the shunting lever of its start (入換てこ)
+	bool shunt;
 
-	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false), ready_at(0), release_at(0) {}
+	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false), ready_at(0), release_at(0), shunt(false) {}
 };
 
 /**
@@ -82,6 +84,9 @@ struct il_slever_t {
 	koord3d pos;   ///< start point (signal or virtual departure)
 	uint8 side;    ///< 'L' or 'R' (as seen on the panel)
 	bool used;     ///< a route was set with this turn: turn it back before the next route
+	uint8 lever;   ///< 0 = the lever of the signal, 1 = the shunting lever at the same start (入換てこ)
+
+	il_slever_t() : side('R'), used(false), lever(0) {}
 };
 
 /// relay: position of a point (the leg pair it is set for) and the end of its throwing time
@@ -125,10 +130,15 @@ struct il_station_t {
 	/// relay: side a signal lever turns to, set by hand (otherwise the panel decides): 'L' / 'R'
 	vector_tpl<koord3d> side_pos;
 	vector_tpl<uint8> side_val;
+	/// relay: an extra shunting lever at a start point: 'W' = shunting signal (入換信号機, white),
+	/// 'G' = shunting indicator (入換標識, green; may lead up to a train standing on the track)
+	vector_tpl<koord3d> shunt_pos;
+	vector_tpl<uint8> shunt_col;
+	uint8 shunt_lever(koord3d pos) const;
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }
-	il_slever_t *find_slever(koord3d pos) const;
+	il_slever_t *find_slever(koord3d pos, sint8 lever = -1) const;
 	il_point_t *find_point(koord3d pos) const;
 };
 
@@ -226,7 +236,11 @@ private:
 	bool admit_train(rail_vehicle_t *v, uint16 start, il_route_t *r, sint32 &restart_speed, uint16 reserve_from);
 	const char *cmd_cancel(il_route_t *r);
 	/// relay: turns a signal lever to 'L', 'R' or back to normal ('N')
-	const char *cmd_signal_lever(il_station_t *st, koord3d pos, char side);
+	const char *cmd_signal_lever(il_station_t *st, koord3d pos, char side, uint8 lever);
+	/// the route ends right behind a train standing on the track (trains one behind the other)
+	bool ends_behind_train(const il_route_t *r) const;
+	/// number of tiles at the end of the route on the same platform / siding track
+	uint32 room_at_end(const il_route_t *r) const;
 	/// checks a tile list "x:y:z;..." from a start point of the station along the track
 	const char *parse_path(il_station_t *st, const char *path, vector_tpl<koord3d> &tiles) const;
 	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);
