@@ -92,7 +92,7 @@ function renderMap() {
 	const obstacles = [];
 	const labelQueue = [];
 	const block = (x1, y1, x2, y2, wt = 1) => obstacles.push([Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), wt]);
-	const label = (parent, x, y, rr, text, attrs) => labelQueue.push({ parent, x, y, rr, text, attrs });
+	const label = (parent, x, y, rr, text, attrs, plate) => labelQueue.push({ parent, x, y, rr, text, attrs, plate });
 	const mapLevers = isRelay() && tab === "run" && viewOpt().mapLevers !== false;
 
 	// grid labels: map x and y on the edge they run along
@@ -210,18 +210,22 @@ function renderMap() {
 	if (st && tab === "run") {
 		const start = currentStart();
 		const dests = start ? findDestinations(start) : new Map();
-		const button = (id, label, t, ox, oy) => {
+		const button = (id, name, t, ox, oy) => {
 			if (!t || !isVisible(t)) return;
 			const d = dests.get(id);
 			const lit = d && d.free, dim = d && !d.free;
-			const tw = [...label].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? 11 : 6.8), 0);
-			const w = Math.max(44, tw + 14) * Math.max(.8, sc * .9), h = 18 * Math.max(.8, sc * .9);
+			// a round push button on the track, its name on a plate beside it
+			const br = 7.5 * Math.max(.8, sc * .9);
 			const x = cx(t.p) + ox, y = cy(t.p) + oy;
-			const grp = el("g", { class: "clickable" + (lit ? " blink" : "") }, g);
-			block(x - w / 2, y - h / 2, x + w / 2, y + h / 2, 3);
-			el("rect", { x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 4, fill: lit ? "var(--yellow)" : "#20283a", stroke: lit || dim ? "var(--yellow)" : "#3a4558", "stroke-dasharray": dim ? "4 3" : "" }, grp);
-			el("text", { x, y: y + 4, "font-size": 11, "text-anchor": "middle", fill: lit ? "#1a1a1a" : "#9fb3cf", "font-weight": 600 }, grp).textContent = label;
-			grp.appendChild(el("title", {})).textContent = `着点ボタン：${label}` + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
+			const grp = el("g", { class: "clickable dest" + (lit ? " blink" : "") }, g);
+			el("circle", { cx: x, cy: y + 1.6, r: br + 1.6, fill: "#05080a", opacity: .6 }, grp);
+			el("circle", { cx: x, cy: y, r: br + 1.6, fill: "#3b4250", stroke: lit || dim ? "var(--yellow)" : "#11151b", "stroke-width": lit || dim ? 2 : 1, "stroke-dasharray": dim ? "3 2" : "" }, grp);
+			el("circle", { cx: x, cy: y, r: br, fill: lit ? "var(--yellow)" : "#e6e3d8" }, grp);
+			el("circle", { cx: x - br * .3, cy: y - br * .35, r: br * .35, fill: "#fff", opacity: .55 }, grp);
+			block(x - br - 2, y - br - 2, x + br + 2, y + br + 2, 3);
+			label(grp, x, y, br + 2, name, { "font-size": 11, "font-weight": 600, fill: lit ? "#1a1a1a" : "#dfe6f0" },
+				{ fill: lit ? "var(--yellow)" : "#20283a", stroke: lit || dim ? "var(--yellow)" : "#3a4558" });
+			grp.appendChild(el("title", {})).textContent = `着点ボタン：${name}` + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
 			grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); });
 		};
 		layout.groups.forEach((gr, i) => {
@@ -299,7 +303,8 @@ function renderMap() {
 		const area = (r, o) => Math.max(0, Math.min(r[2], o[2]) - Math.max(r[0], o[0])) * Math.max(0, Math.min(r[3], o[3]) - Math.max(r[1], o[1]));
 		for (const L of labelQueue) {
 			const fs = L.attrs["font-size"] || 11;
-			const w = [...String(L.text)].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? fs : fs * .62), 0), h = fs * 1.15;
+			const pad = L.plate ? 5 : 0;
+			const w = [...String(L.text)].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? fs : fs * .62), 0) + 2 * pad, h = fs * 1.15 + pad;
 			const a = L.rr + h / 2 + 1, b = L.rr + w / 2 + 3, d = L.rr * .75;
 			const cands = [[0, -a], [0, a], [b, 0], [-b, 0], [d + w / 2, -(d + h / 2)], [d + w / 2, d + h / 2], [-(d + w / 2), -(d + h / 2)], [-(d + w / 2), d + h / 2], [0, -a - h], [0, a + h]];
 			let best = null, bestScore = Infinity;
@@ -309,7 +314,8 @@ function renderMap() {
 				if (score < bestScore) { bestScore = score; best = r; }
 				if (score === 0) break;
 			}
-			el("text", Object.assign({ x: (best[0] + best[2]) / 2, y: best[3] - h * .25, "text-anchor": "middle", "pointer-events": "none" }, L.attrs), L.parent).textContent = L.text;
+			if (L.plate) el("rect", { x: best[0], y: best[1], width: best[2] - best[0], height: best[3] - best[1], rx: 3, fill: L.plate.fill, stroke: L.plate.stroke }, L.parent);
+			el("text", Object.assign({ x: (best[0] + best[2]) / 2, y: best[3] - (h - pad) * .25 - pad / 2, "text-anchor": "middle", "pointer-events": "none" }, L.attrs), L.parent).textContent = L.text;
 			obstacles.push([best[0], best[1], best[2], best[3], 4]);
 		}
 	}

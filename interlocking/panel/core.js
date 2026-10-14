@@ -56,6 +56,9 @@ const ERRORS = {
 	"release all routes first": "設定中・進入中・時素中の進路があります。すべて解除されてから切り替えてください",
 	"bad setting": "設定の値が正しくありません",
 	"bad path": "経路の指定が正しくありません",
+	"this side belongs to the other signal of the lever": "その側は、このてこのもう一方の信号です",
+	"the signal already has a lever pair": "その信号は、すでにほかの信号とまとめてあります",
+	"no lever pair": "まとめてあるてこではありません",
 };
 const tr = (e) => {
 	if (e === "not owner") {

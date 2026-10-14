@@ -323,6 +323,27 @@ try {
 	await page.click("#relayBoard .rlever[data-stop] .knob");
 	await waitFor(async () => !(await stA()).all_stop, 10000, "all stop off");
 	check(true, "emergency stop lever off");
+	// one lever for two signals: S1 on the left, the shunting signal of the siding on the right
+	await page.click("nav button[data-tab=setup]");
+	await page.waitForSelector("#pairAdd");
+	await page.selectOption("#pairL", "3,5,0");
+	await page.selectOption("#pairR", "5,7,0");
+	await page.click("#pairAdd");
+	await waitFor(async () => ((await stA()).pairs || []).length === 1, 10000, "lever pair");
+	await page.click("nav button[data-tab=run]");
+	await page.waitForSelector("#relayBoard .rlever[data-keys='3,5,0|5,7,0']");
+	check((await page.textContent("#relayBoard .rlever[data-keys='3,5,0|5,7,0'] .lname")).includes("1R"), "shared lever on the board (1L / 1R)");
+	await sleep(800);
+	await page.click("#relayBoard .rlever[data-keys='3,5,0|5,7,0'] [data-side=R]");
+	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "5,7,0" && l.side === "R"), 10000, "shared lever right");
+	check(true, "shared lever turned to the right: the shunting signal");
+	await sleep(1200);
+	check(!(await page.isEnabled("#relayBoard .rlever[data-keys='3,5,0|5,7,0'] [data-side=L]")), "the other side is locked while the lever is turned");
+	await page.click("#relayBoard .rlever[data-keys='3,5,0|5,7,0'] [data-side=R]");
+	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "shared lever back");
+	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "lv_unpair," + station().id + ",3,5,0" }));
+	await waitFor(async () => !((await stA()).pairs || []).length, 10000, "unpair");
+	check(true, "lever back to normal, pair removed");
 	// the orientation of a relay panel is stored in the game (the same for everybody)
 	await page.click("#viewbar button[data-rot]");
 	await waitFor(async () => (await stA()).rot === 1, 10000, "relay panel turned");
