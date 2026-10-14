@@ -70,9 +70,11 @@ function renderMap() {
 	CELL = Math.max(10, Math.round(Math.max(16, Math.min(56, fit || 34)) * zoom));
 	const sc = CELL / 34; // scale of the symbols
 	const w = WT * CELL, h = HT * CELL;
-	svg.setAttribute("width", w + 40); svg.setAttribute("height", h + 40);
+	// margin: room for the destination buttons at the exits and for labels
+	const M = Math.round(Math.max(30, CELL * .9 + 50 * Math.max(.8, sc * .9)));
+	svg.setAttribute("width", w + 2 * M); svg.setAttribute("height", h + 2 * M);
 	svg.innerHTML = "";
-	const g = el("g", { transform: "translate(30,30)" }, svg);
+	const g = el("g", { transform: `translate(${M},${M})` }, svg);
 	// tracks of another height are drawn slightly shifted, so that lines above each other stay apart
 	const mainZ = mostVisibleZ();
 	const zs = layers().map(l => l.z).filter(z => z !== mainZ);
@@ -85,6 +87,13 @@ function renderMap() {
 	const SV = (d) => { let [dx, dy] = DXY[d]; for (let i = 0; i < rot; i++) [dx, dy] = [-dy, dx]; return [dx, dy]; };
 	const cx = (p) => uv(p)[0] * CELL + CELL / 2 + shift(p[2]);
 	const cy = (p) => uv(p)[1] * CELL + CELL / 2 + shift(p[2]);
+
+	// labels are placed at the end, beside their mark where they cover the least (tracks, marks, buttons)
+	const obstacles = [];
+	const labelQueue = [];
+	const block = (x1, y1, x2, y2, wt = 1) => obstacles.push([Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2), wt]);
+	const label = (parent, x, y, rr, text, attrs) => labelQueue.push({ parent, x, y, rr, text, attrs });
+	const mapLevers = isRelay() && tab === "run" && viewOpt().mapLevers !== false;
 
 	// grid labels: map x and y on the edge they run along
 	const axisLabel = (p, text, horizontal) => horizontal
@@ -128,6 +137,9 @@ function renderMap() {
 			const [dx, dy] = SV(d);
 			el("line", { x1: cx(t.p), y1: cy(t.p), x2: cx(t.p) + dx * CELL / 2, y2: cy(t.p) + dy * CELL / 2,
 				stroke: color, "stroke-width": 6 * sc, "stroke-linecap": "round", "stroke-dasharray": dashed ? "5 4" : "" }, g);
+			const hw = 4 * sc;
+			block(cx(t.p) - hw, cy(t.p) - hw, cx(t.p) + dx * CELL / 2 + hw * (dx ? 0 : 1), cy(t.p) + dy * CELL / 2 + hw * (dy ? 0 : 1));
+			block(cx(t.p) + hw, cy(t.p) + hw, cx(t.p) + dx * CELL / 2 - hw * (dx ? 0 : 1), cy(t.p) + dy * CELL / 2 - hw * (dy ? 0 : 1));
 		}
 		if (preview.has(k)) {
 			el("circle", { cx: cx(t.p), cy: cy(t.p), r: 7 * sc, fill: "none", stroke: "var(--preview)", "stroke-width": 3 }, g);
@@ -154,17 +166,22 @@ function renderMap() {
 		const travel = singleDir(t.m) || singleDir(t.r & ~BACK[singleDir(t.m) || 0]) || E;
 		// signal head on the left side of the direction of travel (Japanese left-hand running)
 		const [dx, dy] = SV(travel);
-		const ox = dy * 11 * sc, oy = -dx * 11 * sc;
+		const off = (mapLevers && interlocked ? 10 : 11) * sc;
+		const ox = dy * off, oy = -dx * off;
 		const x = cx(t.p) + ox, y = cy(t.p) + oy;
 		const fill = t.s.aspect === "green" ? "var(--green)" : t.s.aspect === "yellow" ? "var(--yellow)" : "var(--red)";
+		if (mapLevers && interlocked) {
+			// relay panel: the signal lever itself, beside the track
+			mapKnob(t.p, x, y, dx, dy);
+			continue;
+		}
 		const grp = el("g", { class: "clickable" }, g);
 		// arrow for the direction of travel
 		const ax = cx(t.p) + dx * 10 * sc, ay = cy(t.p) + dy * 10 * sc, a7 = 7 * sc, a5 = 5 * sc;
 		el("polygon", { points: `${ax},${ay} ${ax - dx * a7 + dy * a5},${ay - dy * a7 - dx * a5} ${ax - dx * a7 - dy * a5},${ay - dy * a7 + dx * a5}`, fill: "#cfd6e0" }, grp);
 		el("circle", { cx: x, cy: y, r: (interlocked ? 8 : 6) * sc, fill, stroke: interlocked ? "#fff" : "#0f1319", "stroke-width": interlocked ? 2.5 : 1.5 }, grp);
-		if (interlocked) {
-			el("text", { x: x, y: y - 12 * sc, "font-size": Math.max(11, 12 * sc), "font-weight": 700, "text-anchor": "middle", fill: "#fff" }, grp).textContent = signalLabel(st, t.p);
-		}
+		block(x - 8 * sc, y - 8 * sc, x + 8 * sc, y + 8 * sc, 3);
+		if (interlocked) label(grp, x, y, 8 * sc, signalLabel(st, t.p), { "font-size": Math.max(11, 12 * sc), "font-weight": 700, fill: "#fff" });
 		if (selectedSignal === key(t.p)) el("circle", { cx: x, cy: y, r: 12 * sc, fill: "none", stroke: "var(--accent)", "stroke-width": 2 }, grp);
 		grp.appendChild(el("title", {})).textContent = `${t.s.name} (${t.p.join(", ")}) ${layerName(t.p[2])} ${companyName(t.s.o)}` + (interlocked ? " てこ扱い" : "");
 		grp.addEventListener("click", (e) => { e.stopPropagation(); signalClicked(t, interlocked); });
@@ -184,7 +201,8 @@ function renderMap() {
 			const [dx, dy] = SV(leg);
 			el("line", { x1: x, y1: y, x2: x + dx * 8 * sc, y2: y + dy * 8 * sc, stroke: color, "stroke-width": 3, "stroke-linecap": "round" }, grp);
 		}
-		el("text", { x: x + 11 * sc, y: y + 14 * sc, "font-size": Math.max(10, 10 * sc), fill: "#9fb3cf" }, grp).textContent = pointName(st, i);
+		block(x - 9 * sc, y - 9 * sc, x + 9 * sc, y + 9 * sc, 3);
+		label(grp, x, y, 9 * sc, pointName(st, i), { "font-size": Math.max(10, 10 * sc), fill: "#9fb3cf" });
 		grp.appendChild(el("title", {})).textContent = `${pointName(st, i)} ` + (ps.by ? `鎖錠中（${ps.by}）` : posName(ps.manual) + (ps.pairs ? `（${pairsText(ps.pairs)}）` : "")) + "（クリックで 自動→定位→反位 と切り替え）";
 		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); pointClicked(i); });
 	});
@@ -196,9 +214,11 @@ function renderMap() {
 			if (!t || !isVisible(t)) return;
 			const d = dests.get(id);
 			const lit = d && d.free, dim = d && !d.free;
-			const w = Math.max(44, label.length * 12) * Math.max(.8, sc * .9), h = 18 * Math.max(.8, sc * .9);
+			const tw = [...label].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? 11 : 6.8), 0);
+			const w = Math.max(44, tw + 14) * Math.max(.8, sc * .9), h = 18 * Math.max(.8, sc * .9);
 			const x = cx(t.p) + ox, y = cy(t.p) + oy;
 			const grp = el("g", { class: "clickable" + (lit ? " blink" : "") }, g);
+			block(x - w / 2, y - h / 2, x + w / 2, y + h / 2, 3);
 			el("rect", { x: x - w / 2, y: y - h / 2, width: w, height: h, rx: 4, fill: lit ? "var(--yellow)" : "#20283a", stroke: lit || dim ? "var(--yellow)" : "#3a4558", "stroke-dasharray": dim ? "4 3" : "" }, grp);
 			el("text", { x, y: y + 4, "font-size": 11, "text-anchor": "middle", fill: lit ? "#1a1a1a" : "#9fb3cf", "font-weight": 600 }, grp).textContent = label;
 			grp.appendChild(el("title", {})).textContent = `着点ボタン：${label}` + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
@@ -225,7 +245,14 @@ function renderMap() {
 		if (!t || !isVisible(t)) continue;
 		const rs = status.routes.filter(r => key(r.start) === key(d.pos));
 		const clear = rs.some(r => r.state !== "idle");
+		if (mapLevers) {
+			// relay panel: the lever beside the platform end (left of the direction of leaving)
+			const [dx, dy] = SV(startTravelDir(st, d.pos) || E);
+			mapKnob(d.pos, cx(t.p) + dy * 10 * sc, cy(t.p) - dx * 10 * sc, dx, dy);
+			continue;
+		}
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
+		block(x - r, y - r, x + r, y + r, 3);
 		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
 		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(d.pos, true); });
 		if (d.shunt) {
@@ -233,7 +260,7 @@ function renderMap() {
 			el("path", { d: `M${x} ${y - r * 1.25} L${x + r * 1.25} ${y} L${x} ${y + r * 1.25} L${x - r * 1.25} ${y} Z`, fill: clear ? "#f4f4f4" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
 		}
 		else el("rect", { x: x - r, y: y - r, width: 2 * r, height: 2 * r, rx: 2, fill: clear ? "var(--green)" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
-		el("text", { x, y: y - 11 * sc, "font-size": Math.max(11, 12 * sc), "font-weight": 700, "text-anchor": "middle", fill: "#fff" }, grp).textContent = signalLabel(st, d.pos);
+		label(grp, x, y, r, signalLabel(st, d.pos), { "font-size": Math.max(11, 12 * sc), "font-weight": 700, fill: "#fff" });
 		grp.appendChild(el("title", {})).textContent = `${d.shunt ? "仮想入換信号" : "仮想出発信号"} ${signalLabel(st, d.pos)} (${d.pos.join(", ")})` + (d.train ? " " + d.train : "");
 	}
 	// halt names
@@ -242,7 +269,47 @@ function renderMap() {
 		if (!t.h || named.has(t.h) || !isVisible(t)) continue;
 		named.add(t.h);
 		const hl = halts.find(x => x.id === t.h);
-		if (hl) el("text", { x: cx(t.p) - CELL / 2 + 3, y: cy(t.p) - CELL / 2 - 3, "font-size": 11, fill: "#9fb3cf" }, g).textContent = hl.name;
+		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, hl.name, { "font-size": 11, fill: "#9fb3cf" });
+	}
+	placeLabels();
+
+	// a signal lever drawn on the map (relay panel): knob, aspect lamp ahead, number
+	function mapKnob(pos, x, y, dx, dy) {
+		const v = leverView(st, pos);
+		const r = 7.5 * sc;
+		const grp = el("g", { class: "mapknob" + (hoverLever === key(pos) ? " hl" : ""), "data-mk": key(pos) }, g);
+		el("circle", { cx: x, cy: y, r: r + 3, class: "ring" }, grp);
+		el("circle", { cx: x, cy: y, r, fill: "#11161a", stroke: "#4a5a52", "stroke-width": 1.5 }, grp);
+		const kg = el("g", { transform: `rotate(${v.angle} ${x} ${y})` }, grp);
+		el("rect", { x: x - 2.6 * sc, y: y - r + 1.5, width: 5.2 * sc, height: 2 * r - 3, rx: 2.6 * sc, fill: v.shunt ? "#e9ebe4" : "#c8323a" }, kg);
+		const lx = x + dx * (r + 4 * sc), ly = y + dy * (r + 4 * sc);
+		el("circle", { cx: lx, cy: ly, r: 3.2 * sc, fill: v.clear ? "var(--green)" : "var(--red)", stroke: "#000", "stroke-width": .8, class: v.blink ? "blink" : "" }, grp);
+		block(x - r - 2, y - r - 2, x + r + 2, y + r + 2, 3);
+		block(lx - 4 * sc, ly - 4 * sc, lx + 4 * sc, ly + 4 * sc, 3);
+		label(grp, x, y, r + 1, String(v.no), { "font-size": Math.max(11, 11 * sc), "font-weight": 700, fill: "#e8e4d4" });
+		grp.appendChild(el("title", {})).textContent = `${v.no} ${signalLabel(st, pos)}：${v.sl ? "反位（もう一度押すと定位）" : "押すと開通方向にひねる"}${v.state ? "　" + v.state : ""}`;
+		grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null); });
+		grp.addEventListener("mouseenter", () => setHoverLever(key(pos)));
+		grp.addEventListener("mouseleave", () => setHoverLever(null));
+	}
+
+	function placeLabels() {
+		const area = (r, o) => Math.max(0, Math.min(r[2], o[2]) - Math.max(r[0], o[0])) * Math.max(0, Math.min(r[3], o[3]) - Math.max(r[1], o[1]));
+		for (const L of labelQueue) {
+			const fs = L.attrs["font-size"] || 11;
+			const w = [...String(L.text)].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? fs : fs * .62), 0), h = fs * 1.15;
+			const a = L.rr + h / 2 + 1, b = L.rr + w / 2 + 3, d = L.rr * .75;
+			const cands = [[0, -a], [0, a], [b, 0], [-b, 0], [d + w / 2, -(d + h / 2)], [d + w / 2, d + h / 2], [-(d + w / 2), -(d + h / 2)], [-(d + w / 2), d + h / 2], [0, -a - h], [0, a + h]];
+			let best = null, bestScore = Infinity;
+			for (const [ox, oy] of cands) {
+				const r = [L.x + ox - w / 2, L.y + oy - h / 2, L.x + ox + w / 2, L.y + oy + h / 2];
+				const score = obstacles.reduce((s, o) => s + area(r, o) * o[4], 0);
+				if (score < bestScore) { bestScore = score; best = r; }
+				if (score === 0) break;
+			}
+			el("text", Object.assign({ x: (best[0] + best[2]) / 2, y: best[3] - h * .25, "text-anchor": "middle", "pointer-events": "none" }, L.attrs), L.parent).textContent = L.text;
+			obstacles.push([best[0], best[1], best[2], best[3], 4]);
+		}
 	}
 }
 function singleDir(r) { return DIRS.includes(r) ? r : 0; }

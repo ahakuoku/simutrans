@@ -358,10 +358,17 @@ function renderViewbar() {
 	let html = `<button data-zoom="out" title="縮小（Ctrl＋ホイール）">－</button><button data-zoom="fit" title="全体を表示">${Math.round(zoom * 100)}%</button><button data-zoom="in" title="拡大（Ctrl＋ホイール）">＋</button><span class="sep"></span>`;
 	const vr = viewRot();
 	html += `<button data-rot="1" title="地図を時計回りに90°回す（縦に引かれた駅を横向きにする）${isRelay() ? "。継電の盤は全員同じ向き（ゲームに保存）" : ""}">↻ 回転 ${vr * 90}°${vr ? "（北は" + ["上", "右", "下", "左"][vr] + "）" : ""}</button><span class="sep"></span>`;
+	if (isRelay()) html += `<button data-v="levers" class="${o.mapLevers !== false ? "on" : ""}" title="運転タブで、信号てこを地図の上にも表示する">地図にてこ</button>`;
 	html += `<button data-v="connected" class="${o.connected ? "on" : ""}" ${stationTiles ? "" : "disabled title='駅が分からないため使えません'"}>この駅につながる線路だけ</button>`;
 	if (ls.length > 1) {
 		html += `<span class="sep"></span>高さ`;
-		for (const l of ls) html += `<button data-z="${l.z}" class="${o.hidden.includes(l.z) ? "" : "on"}">${l.name}（${l.z}）</button>`;
+		// the same name twice (e.g. two ground levels): upper / lower
+		for (const l of ls) {
+			const same = ls.filter(x => x.name === l.name);
+			const rank = same.indexOf(l);
+			const part = same.length < 2 ? "" : same.length === 2 ? ["・上段", "・下段"][rank] : `・${rank + 1}段目`;
+			html += `<button data-z="${l.z}" class="${o.hidden.includes(l.z) ? "" : "on"}" title="高さ ${l.z}">${l.name}${part}（高さ${l.z}）</button>`;
+		}
 	}
 	// compass: always shows where north is (turns with the map)
 	const deg = vr * 90;
@@ -386,6 +393,7 @@ function renderViewbar() {
 		}
 		if (b.dataset.rot) v.rot = ((v.rot || 0) + 1) & 3;
 		else if (b.dataset.v === "connected") v.connected = !v.connected;
+		else if (b.dataset.v === "levers") v.mapLevers = v.mapLevers === false;
 		else {
 			const z = Number(b.dataset.z);
 			v.hidden = v.hidden.includes(z) ? v.hidden.filter(x => x !== z) : v.hidden.concat([z]);

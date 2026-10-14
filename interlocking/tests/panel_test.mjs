@@ -283,8 +283,9 @@ try {
 	const levers = await page.$$eval("#relayBoard .rlever .plate", ps => ps.map(p => p.textContent));
 	check(levers.includes("1") && levers.includes("21") && levers.includes("停"), "levers on the board: " + levers.join(" "));
 	await page.screenshot({ path: path.join(shots, "5_relay.png") });
+	check(!(await page.isEnabled("#relayBoard .rlever[data-sl='3,5,0'] [data-side=L]")), "lever 1 (eastbound) cannot be turned to the left");
 	// signal lever 1 (S1, eastbound): turn to the right, then press the destination button
-	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob", { position: { x: 50, y: 28 } });
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] [data-side=R]");
 	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "3,5,0" && l.side === "R"), 10000, "lever turned");
 	check(true, "signal lever 1 turned to the right (stored in the game)");
 	await sleep(800);
@@ -294,16 +295,26 @@ try {
 	check(true, `route set with lever + destination button (${relayRoute.state}${relayRoute.waiting ? ", points moving " + relayRoute.waiting + " s" : ""})`);
 	await sleep(800);
 	await page.screenshot({ path: path.join(shots, "6_relay_route.png") });
-	// lever back to normal: the route is cancelled (or the time release starts when a train approaches)
-	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob", { position: { x: 28, y: 28 } });
+	// lever back to normal with the lever on the map: the route is cancelled (or the time release starts when a train approaches)
+	check(await page.locator("#map [data-mk='3,5,0']").count() === 1, "signal lever 1 also drawn on the map");
+	await page.hover("#map [data-mk='3,5,0']");
+	check(await page.locator("#relayBoard .rlever.hl[data-sl='3,5,0']").count() === 1, "hovering the lever on the map highlights it on the board");
+	await page.click("#map [data-mk='3,5,0']");
 	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "lever back");
 	const after = (await getJson("/api/status")).routes.find(r => r.id === relayRoute.id);
 	check(!after || after.state === "releasing" || after.state === "occupied", `lever back to normal: route ${after ? after.state : "cancelled"}`);
 	// point lever 21: N (left third)
 	await sleep(1500);
-	await page.click("#relayBoard .rlever[data-pl='0'] .knob", { position: { x: 8, y: 28 } }).catch(() => {});
+	await page.click("#relayBoard .rlever[data-pl='0'] [data-side=L]");
 	const lv21 = await waitFor(async () => ((await stA()).levers || []).find(l => l.pos.join(",") === "4,5,0"), 10000, "point lever N").catch(() => null);
-	check(!lv21 || lv21.value === "N", "point lever 21 to N" + (lv21 ? "" : " (locked by the route, skipped)"));
+	check(!lv21 || lv21.value === "N", "point lever 21 to N with its button" + (lv21 ? "" : " (locked by a train, skipped)"));
+	if (lv21) {
+		await sleep(1500);
+		await page.click("#relayBoard .rlever[data-pl='0'] .knob");
+		await waitFor(async () => !((await stA()).levers || []).some(l => l.pos.join(",") === "4,5,0"), 10000, "point lever C");
+		check(true, "point lever 21 back to C with the knob");
+	}
+	check(await page.locator("#relayBoard .rlegend").count() === 1, "legend of the lamps shown");
 	// emergency stop lever
 	await page.click("#relayBoard .rlever[data-stop] .knob");
 	await waitFor(async () => (await stA()).all_stop, 10000, "all stop");

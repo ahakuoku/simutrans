@@ -102,6 +102,15 @@ function knob(color, angle, label) {
 		${label ? `<text x="30" y="58" font-size="9" text-anchor="middle" fill="#cfd6cf">${label}</text>` : ""}
 	</svg>`;
 }
+// the two side buttons under a knob (the knob itself is the middle)
+const sideBtns = (l, r, disL, disR, onL, onR) =>
+	`<div class="lrbtn"><button data-side="L" class="${onL ? "on" : ""}" ${disL ? "disabled" : ""}>${l}</button><button data-side="R" class="${onR ? "on" : ""}" ${disR ? "disabled" : ""}>${r}</button></div>`;
+let hoverLever = null;    // key of the signal lever under the mouse (board or map)
+function setHoverLever(k) {
+	hoverLever = k;
+	for (const e of document.querySelectorAll("#relayBoard [data-sl]")) e.classList.toggle("hl", e.dataset.sl.split(",").join(",") === k);
+	for (const e of document.querySelectorAll("#map [data-mk]")) e.classList.toggle("hl", e.dataset.mk === k);
+}
 const lamp = (on, color, cls = "") => `<span class="lamp ${cls} ${on ? "on" : ""}" style="--lc:${color}"></span>`;
 
 function renderRelayBoard() {
@@ -123,9 +132,10 @@ function renderRelayBoard() {
 		else if (r && r.state === "set" && r.waiting) state = `<span class="timer">${st.all_stop ? "一斉停止" : "転換中"}</span>`;
 		else if (sl && sl.used && !r) state = `<span class="timer dim">復位してください</span>`;
 		else if (sl && !sl.used) state = `<span class="timer">着点を押す</span>`;
-		html += `<div class="rlever ${relayStart() && key(relayStart().pos) === key(l.pos) ? "sel" : ""}" data-sl="${l.pos.join(",")}" title="${esc(signalLabel(st, l.pos))}：${side === "L" ? "左" : "右"}にひねって着点ボタンを押す">
+		html += `<div class="rlever ${relayStart() && key(relayStart().pos) === key(l.pos) ? "sel" : ""} ${hoverLever === key(l.pos) ? "hl" : ""}" data-sl="${key(l.pos)}" title="${esc(signalLabel(st, l.pos))}：${side === "L" ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）">
 			<div class="lamps">${lamp(sl && sl.side === "L", "#f4f1e6")}${lamp(clear, "var(--green)")}${lamp(!clear, "var(--red)", "small")}${lamp(sl && sl.side === "R", "#f4f1e6")}</div>
 			${knob(l.shunt ? "#e9ebe4" : "#c8323a", angle)}
+			${sideBtns("◀", "▶", side !== "L" || (sl && sl.side !== "L"), side !== "R" || (sl && sl.side !== "R"), sl && sl.side === "L", sl && sl.side === "R")}
 			<div class="plate">${l.no}</div><div class="lname">${esc(signalLabel(st, l.pos))}</div>${state}</div>`;
 	}
 	html += `</div><h2>転てつてこ</h2><div class="rboard">`;
@@ -136,9 +146,10 @@ function renderRelayBoard() {
 		const m = ls.manual === "N" ? "N" : ls.manual === "R" ? "R" : "C";
 		const angle = m === "N" ? -45 : m === "R" ? 45 : 0;
 		const blink = lp.moving > 0 ? "blink" : "";
-		html += `<div class="rlever point ${ls.locked ? "locked" : ""}" data-pl="${li}" title="${esc(leverName(st, li))}：左＝N（定位）・中央＝C（総括）・右＝R（反位）">
+		html += `<div class="rlever point ${ls.locked ? "locked" : ""}" data-pl="${li}" title="${esc(leverName(st, li))}：◀ N（定位）・つまみ C（総括）・▶ R（反位）">
 			<div class="lamps">${lamp(lp.pos === "N", "var(--green)", blink)}<span class="lt">N</span><span class="lt">R</span>${lamp(lp.pos === "R", "var(--green)", blink)}</div>
 			${knob("#23272b", angle, "N　C　R")}
+			${sideBtns("◀N", "R▶", false, false, m === "N", m === "R")}
 			<div class="plate">${21 + li}${lv.double ? "<small>イロ</small>" : ""}</div>${labelAt(st, pt.t.p) ? `<div class="lname">${esc(labelAt(st, pt.t.p))}</div>` : ""}
 			${ls.locked ? `<span class="timer dim">鎖錠</span>` : lp.moving > 0 ? `<span class="timer blink">転換 ${lp.moving}秒</span>` : ""}</div>`;
 	});
@@ -148,36 +159,47 @@ function renderRelayBoard() {
 			${knob("#c8323a", st.all_stop ? 45 : 0)}<div class="plate">停</div><div class="lname">一斉停止</div></div>
 		<div class="rlever" data-mode="1" title="駅扱切換てこ：左＝CTC集中（自動）、右＝駅扱（扱者）">
 			<div class="lamps">${lamp(!st.manual, "#f4f1e6")}${lamp(st.manual, "var(--green)")}</div>
-			${knob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
+			${knob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
 		<div class="rlever" data-buzz="1" title="接近電響：列車が信号で待つと音で知らせる（このブラウザだけ）">
 			<div class="lamps">${lamp(buzzerOn, "var(--green)")}</div>
 			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響</div></div>
+	</div>
+	<div class="rlegend">
+		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>
+		<div>${lamp(true, "#f4f1e6")} てこが反位（ひねった側）</div>
+		<div>${lamp(true, "var(--green)")} 信号進行　／　転てつてこ：ポイントの向き（N 定位・R 反位）</div>
+		<div>${lamp(true, "var(--red)")} 信号停止　／　一斉停止中</div>
+		<div>${lamp(true, "var(--green)", "blink")} 点滅：ポイント転換中・時素中</div>
+		<div><span class="timer">着点を押す</span> てこをひねった。着点ボタンで進路を取る　<span class="timer dim">復位してください</span> 列車が通過した。てこを定位に戻す</div>
 	</div>`;
 	if (box.dataset.html === html) return;
 	box.innerHTML = box.dataset.html = html;
-	// left third / middle / right third of a knob
-	const third = (e, elm) => { const r = elm.getBoundingClientRect(); const x = (e.clientX - r.left) / r.width; return x < .36 ? "L" : x > .64 ? "R" : "M"; };
-	for (const d of box.querySelectorAll("[data-sl]")) d.querySelector(".knob").addEventListener("click", (e) => {
+	for (const d of box.querySelectorAll("[data-sl]")) {
 		const pos = d.dataset.sl.split(",").map(Number);
-		const t = third(e, e.currentTarget);
-		const sl = sleverOf(st, pos);
-		// a turned lever goes back to normal; otherwise it turns to the clicked side (middle: its own side)
-		turnSignalLever(pos, sl ? "N" : t === "M" ? null : t);
-	});
-	for (const d of box.querySelectorAll("[data-pl]")) d.querySelector(".knob").addEventListener("click", (e) => {
+		// the knob: turn to its side, or back to normal
+		d.querySelector(".knob").addEventListener("click", () => turnSignalLever(pos, sleverOf(st, pos) ? "N" : null));
+		for (const b of d.querySelectorAll("[data-side]")) b.addEventListener("click", () => {
+			const sl = sleverOf(st, pos);
+			turnSignalLever(pos, sl && sl.side === b.dataset.side ? "N" : b.dataset.side);
+		});
+		d.addEventListener("mouseenter", () => setHoverLever(d.dataset.sl));
+		d.addEventListener("mouseleave", () => setHoverLever(null));
+	}
+	for (const d of box.querySelectorAll("[data-pl]")) {
 		const li = Number(d.dataset.pl);
-		const ls = leverState(li);
-		if (ls.locked) { toast(`${leverName(st, li)} は鎖錠中です` + (ls.by ? `（${ls.by}）` : "（在線）"), true); return; }
-		const t = third(e, e.currentTarget);
-		setLever(li, t === "L" ? "N" : t === "R" ? "R" : null);
-	});
+		const throwTo = (pos) => {
+			const ls = leverState(li);
+			if (ls.locked) { toast(`${leverName(st, li)} は鎖錠中です` + (ls.by ? `（${ls.by}）` : "（在線）"), true); return; }
+			setLever(li, pos);
+		};
+		d.querySelector(".knob").addEventListener("click", () => throwTo(null));
+		for (const b of d.querySelectorAll("[data-side]")) b.addEventListener("click", () => throwTo(b.dataset.side === "L" ? "N" : "R"));
+	}
 	box.querySelector("[data-stop] .knob").addEventListener("click", () =>
 		command(`st_stop,${st.id},${st.all_stop ? 0 : 1}`, st.all_stop ? "一斉停止 解除" : "一斉停止"));
-	box.querySelector("[data-mode] .knob").addEventListener("click", (e) => {
-		const t = third(e, e.currentTarget);
-		const manual = t === "L" ? false : t === "R" ? true : !st.manual;
-		if (manual !== st.manual) command(`st_mode,${st.id},${manual ? 1 : 0}`, manual ? "駅扱" : "CTC集中");
-	});
+	const setMode = (manual) => { if (manual !== st.manual) command(`st_mode,${st.id},${manual ? 1 : 0}`, manual ? "駅扱" : "CTC集中"); };
+	box.querySelector("[data-mode] .knob").addEventListener("click", () => setMode(!st.manual));
+	for (const b of box.querySelectorAll("[data-mode] [data-side]")) b.addEventListener("click", () => setMode(b.dataset.side === "R"));
 	box.querySelector("[data-buzz] .pushbtn").addEventListener("click", () => {
 		buzzerOn = !buzzerOn;
 		try { localStorage.setItem("il.buzzer", buzzerOn ? "1" : "0"); } catch (e) {}
@@ -226,4 +248,16 @@ function renderStationCfg() {
 		const ops = [...box.querySelectorAll("[data-op]")].filter(x => x.checked).map(x => x.dataset.op);
 		command(`st_ops,${st.id},${ops.join(".")}`, "操作できる会社");
 	});
+}
+
+// state of a signal lever for drawing it (board and map)
+function leverView(st, pos) {
+	const l = signalLevers(st).find(x => key(x.pos) === key(pos)) || { no: "", shunt: false };
+	const sl = sleverOf(st, pos);
+	const r = status.routes.find(x => key(x.start) === key(pos) && x.state !== "idle");
+	const sig = st.signals.find(s => key(s.pos) === key(pos));
+	const clear = !!(r && r.state === "set" && !r.waiting && !st.all_stop) || !!(sig && sig.aspect !== "red");
+	const state = r && r.state === "releasing" ? `時素 ${r.release_in}秒` : r && r.state === "set" && r.waiting ? (st.all_stop ? "一斉停止" : "転換中") :
+		sl && sl.used && !r ? "復位してください" : sl && !sl.used ? "着点を押す" : "";
+	return { no: l.no, shunt: l.shunt, sl, clear, state, angle: sl ? (sl.side === "L" ? -45 : 45) : 0, blink: !!(r && (r.state === "releasing" || r.waiting)) };
 }
