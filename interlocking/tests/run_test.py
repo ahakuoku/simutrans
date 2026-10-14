@@ -151,7 +151,7 @@ def run(args):
         check(p.cmd("st_new,B terminus")["ok"], "create station B")
         sidb = [st for st in p.status()["stations"] if st["name"] == "B terminus"][0]["id"]
         check(not p.cmd(f"dep_add,{sidb},11,5,0")["ok"], "virtual departure on a junction is refused")
-        check(not p.cmd(f"dep_add,{sidb},12,9,0")["ok"], "virtual departure without track is refused")
+        check(not p.cmd(f"dep_add,{sidb},14,9,0")["ok"], "virtual departure without track is refused")
         check(p.cmd(f"dep_add,{sidb},14,5,0")["ok"], "register platform B as virtual departure signal (clicked at the buffer end)")
         dep = [st for st in p.status()["stations"] if st["id"] == sidb][0]["departures"][0]
         check(dep["pos"] == [13, 5, 0], f"departure end found automatically: {dep['pos']}")
@@ -159,6 +159,23 @@ def run(args):
         rb = [r for r in p.status()["routes"] if r["name"] == "B-out"][0]
         check(rb["tiles"][0] == [13, 5, 0] and rb["tiles"][-1] == [9, 5, 0], "departure route runs from the platform end to (9,5)")
         check(p.cmd(f"st_mode,{sidb},1")["ok"], "station B in operator mode")
+
+        print("[1b] sidings that can be left at both ends, sidings in other stops")
+        check(p.cmd("st_new,C siding")["ok"], "create station C")
+        sidc = [st for st in p.status()["stations"] if st["name"] == "C siding"][0]["id"]
+        stc = lambda: [st for st in p.status()["stations"] if st["id"] == sidc][0]
+        res = p.cmd(f"dep_add,{sidc},7,12,0,S")
+        check(not res["ok"] and res["error"] == "click the platform end where trains leave", "through track: the end must be clicked")
+        check(p.cmd(f"dep_add,{sidc},6,12,0,S")["ok"] and p.cmd(f"dep_add,{sidc},8,12,0,S")["ok"], "virtual shunting signals at both ends")
+        deps = stc()["departures"]
+        check(sorted(d["pos"] for d in deps) == [[6, 12, 0], [8, 12, 0]] and all(d.get("shunt") for d in deps), f"both ends registered as shunting signals: {[d['pos'] for d in deps]}")
+        check(not p.cmd(f"dep_add,{sidc},6,12,0,S")["ok"], "the same end twice is refused")
+        check(not p.cmd(f"dep_add,{sid},8,12,0")["ok"], "a track of another station is refused")
+        res = p.cmd(f"dep_del,{sidc},7,12,0")
+        check(not res["ok"], "removing: ambiguous in the middle of a track with two signals")
+        check(p.cmd(f"dep_del,{sidc},6,12,0")["ok"] and len(stc()["departures"]) == 1, "one end removed")
+        check(p.cmd(f"dep_add,{sidc},6,12,0,D")["ok"] and not [d for d in stc()["departures"] if d["pos"] == [6, 12, 0]][0].get("shunt"), "kind given explicitly: departure signal")
+        check(p.cmd(f"st_sid,{sid},12:8:0")["ok"] and p.status()["stations"][0]["siding_halts"] == [[12, 8, 0]], "stop (12,8) used as a siding of station A")
 
         print("[2] conflicting routes (before the train runs)")
         check(p.cmd(f"set,{r1['id']}")["ok"], "set route 1")
@@ -403,6 +420,7 @@ def run(args):
         p = Panel(PORT)
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
+                                 st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
                                  st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]

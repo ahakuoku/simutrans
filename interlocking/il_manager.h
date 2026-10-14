@@ -61,6 +61,9 @@ struct il_route_t {
 struct il_departure_t {
 	koord3d anchor;               ///< platform end where trains leave; start tile of its routes
 	vector_tpl<koord3d> tiles;    ///< all tiles of this platform track
+	uint8 kind;                   ///< 0 = departure signal (出発), 1 = shunting signal (入換)
+
+	il_departure_t() : kind(0) {}
 };
 
 /**
@@ -113,6 +116,8 @@ struct il_station_t {
 	bool all_stop;       ///< emergency stop lever (一斉停止): no signal clears
 	vector_tpl<il_slever_t *> slevers;
 	vector_tpl<il_point_t *> points;
+	/// other stops in the area used as sidings (留置線): one tile of each stop
+	vector_tpl<koord3d> siding_halts;
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }
@@ -186,6 +191,8 @@ private:
 	il_station_t *find_departure_anchor(koord3d pos, il_departure_t **dep = NULL) const;
 	/// the station and departure that contains the platform tile pos (NULL if none)
 	il_station_t *find_departure_track(koord3d pos, il_departure_t **dep = NULL) const;
+	/// the departure of a train standing at pos that leaves over its anchor (a track may have one at each end)
+	il_station_t *find_departure_of_train(const rail_vehicle_t *v, il_departure_t **dep, uint16 &k) const;
 	/// a registered start point of routes: interlocked signal or virtual departure signal
 	bool is_start_point(const il_station_t *st, koord3d pos) const;
 	/// tiles of the platform track at pos, and the end where trains leave

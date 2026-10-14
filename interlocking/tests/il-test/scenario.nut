@@ -7,7 +7,8 @@
 //  y=5   D . S1 J [A1 A1 A1] . . J . [B  B]      D = depot (1,5), S1 = entry signal (3,5)
 //  y=6          J-J[A2 A2 A2]-----J               J = junctions (4,5) (11,5) (5,6), curves (4,6) (11,6)
 //  y=7            |                                siding (5,7)-(5,8): dead end at (5,8)
-//  y=8            .
+//  y=8            .                      S        S = stop used as a siding (12,8)-(12,9), off the junction (12,5)
+//  y=12  a through track (2..12,12) with a stop at (6..8,12): virtual signals at both ends
 //
 //  Station A has two platforms (y=5 and y=6), station B is a terminus at the east end.
 //  A separate line crosses on a bridge at x=10 (not connected). A crossover links both tracks at x=9.
@@ -43,6 +44,10 @@ function build_layout()
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(11, 6, 0), coord3d(11, 5, 0), rail, true), null)
 	// a dead-end siding south of platform 2 (virtual shunting signal)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(5, 6, 0), coord3d(5, 8, 0), rail, true), null)
+	// a siding built as a stop (駅属性の留置線) south of (12,5): dead end at (12,9)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(12, 5, 0), coord3d(12, 9, 0), rail, true), null)
+	// a separate through track with a stop in the middle (a siding that can be left at both ends)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(2, 12, 0), coord3d(12, 12, 0), rail, true), null)
 	// a short crossover between the two tracks east of the platforms (one lever for both points)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(9, 5, 0), coord3d(9, 6, 0), rail, true), null)
 
@@ -50,6 +55,11 @@ function build_layout()
 	foreach (x in [6, 7, 8]) {
 		ASSERT_EQUAL(command_x.build_station(pl, coord3d(x, 5, 0), station_desc), null)
 		ASSERT_EQUAL(command_x.build_station(pl, coord3d(x, 6, 0), station_desc), null)
+	}
+	ASSERT_EQUAL(command_x.build_station(pl, coord3d(12, 8, 0), station_desc), null)
+	ASSERT_EQUAL(command_x.build_station(pl, coord3d(12, 9, 0), station_desc), null)
+	foreach (x in [6, 7, 8]) {
+		ASSERT_EQUAL(command_x.build_station(pl, coord3d(x, 12, 0), station_desc), null)
 	}
 	ASSERT_EQUAL(command_x.build_station(pl, coord3d(13, 5, 0), station_desc), null)
 	ASSERT_EQUAL(command_x.build_station(pl, coord3d(14, 5, 0), station_desc), null)

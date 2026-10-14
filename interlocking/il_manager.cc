@@ -27,7 +27,8 @@
 // version of the interlocking data block in the savegame (independent of the OTRP version)
 // 1: stations, signals, routes  2: + virtual departure signals  3: + temporary routes, names  4: + point levers
 // 5: + kind (relay), operators, signal levers, point positions, timers
-#define IL_SAVE_VERSION 5
+// 6: + kind of virtual signals (departure / shunting), sidings in other stops
+#define IL_SAVE_VERSION 6
 
 // ticks per second of game time at normal speed (time multiplier 16: one tick per millisecond)
 #define IL_TICKS_PER_SECOND 1000
@@ -340,11 +341,32 @@ bool interlocking_manager_t::may_manage(const il_station_t *st, const player_t *
 
 bool interlocking_manager_t::is_shunt_start(koord3d pos) const
 {
-	if(  find_departure_anchor(pos) == NULL  ) {
-		return false;
+	il_departure_t *dep = NULL;
+	return find_departure_anchor(pos, &dep)  &&  dep->kind == 1;
+}
+
+
+il_station_t *interlocking_manager_t::find_departure_of_train(const rail_vehicle_t *v, il_departure_t **dep, uint16 &k) const
+{
+	const convoi_t *cnv = v->get_convoi();
+	const route_t *rt = cnv->get_route();
+	const uint16 from = max(v->get_route_index(), (uint16)1) - 1;
+	FOR(vector_tpl<il_station_t *>, st, stations) {
+		FOR(vector_tpl<il_departure_t *>, d, st->departures) {
+			if(  !d->tiles.is_contained(v->get_pos())  ) {
+				continue;
+			}
+			// the train must leave over the anchor (the end with the routes of this signal)
+			for(  uint32 i = from;  i < rt->get_count();  i++  ) {
+				if(  rt->at(i) == d->anchor  ) {
+					k = (uint16)i;
+					*dep = d;
+					return st;
+				}
+			}
+		}
 	}
-	const grund_t *gr = world()->lookup(pos);
-	return gr  &&  !gr->get_halt().is_bound();
+	return NULL;
 }
 
 
@@ -622,7 +644,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "set_path,", 9) == 0  ||  strncmp(buf, "rt_path,", 8) == 0  ) {
 		max_fields = 4;
 	}
-	else if(  strncmp(buf, "rt_name,", 8) == 0  ) {
+	else if(  strncmp(buf, "rt_name,", 8) == 0  ||  strncmp(buf, "st_sid,", 7) == 0  ) {
 		max_fields = 3;
 	}
 	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
@@ -722,8 +744,6 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  (strcmp(cmd, "dep_add") == 0  ||  strcmp(cmd, "dep_del") == 0)  &&  n >= 5  ) {
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
-		il_departure_t *existing = NULL;
-		il_station_t *owner_st = find_departure_track(pos, &existing);
 		if(  st == NULL  ) {
 			error = "unknown station";
 		}
@@ -731,12 +751,24 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = "not owner";
 		}
 		else if(  cmd[4] == 'a'  ) {
+			// a track may have one virtual signal at each end (sidings that can be left both ways)
 			il_departure_t *d = new il_departure_t();
-			if(  owner_st  ) {
-				error = owner_st == st ? "platform already registered" : "platform belongs to another station";
-				delete d;
+			if(  (error = platform_track(pos, d->tiles, d->anchor)) == NULL  ) {
+				const grund_t *agr = world()->lookup(d->anchor);
+				// D = departure signal, S = shunting signal; default: departure at a platform
+				d->kind = n >= 6 ? (f[5][0] == 'S' ? 1 : 0) : (agr  &&  agr->get_halt().is_bound() ? 0 : 1);
+				FOR(vector_tpl<il_station_t *>, ost, stations) {
+					FOR(vector_tpl<il_departure_t *>, od, ost->departures) {
+						if(  od->anchor == d->anchor  ) {
+							error = ost == st ? "platform already registered" : "platform belongs to another station";
+						}
+						else if(  ost != st  &&  od->tiles.is_contained(d->anchor)  ) {
+							error = "platform belongs to another station";
+						}
+					}
+				}
 			}
-			else if(  (error = platform_track(pos, d->tiles, d->anchor)) != NULL  ) {
+			if(  error  ) {
 				delete d;
 			}
 			else {
@@ -744,8 +776,25 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 		}
 		else {
-			if(  owner_st != st  ||  existing == NULL  ) {
+			// the signal at this end, or the only one of this track
+			il_departure_t *existing = NULL;
+			uint32 on_track = 0;
+			FOR(vector_tpl<il_departure_t *>, d, st->departures) {
+				if(  d->anchor == pos  ) {
+					existing = d;
+					on_track = 1;
+					break;
+				}
+				if(  d->tiles.is_contained(pos)  ) {
+					existing = d;
+					on_track++;
+				}
+			}
+			if(  existing == NULL  ) {
 				error = "platform not registered";
+			}
+			else if(  on_track > 1  ) {
+				error = "click the platform end where trains leave";
 			}
 			else {
 				st->departures.remove(existing);
@@ -807,6 +856,29 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 					q++;
 				}
 				if(  *q  ) {
+					q++;
+				}
+			}
+		}
+	}
+	else if(  strcmp(cmd, "st_sid") == 0  &&  n >= 2  ) {
+		// other stops in the area that are used as sidings: "x:y:z;x:y:z" (one tile of each)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			st->siding_halts.clear();
+			for(  const char *q = n >= 3 ? f[2] : "";  q  &&  *q;  ) {
+				int x, y, z;
+				if(  sscanf(q, "%d:%d:%d", &x, &y, &z) == 3  ) {
+					st->siding_halts.append(koord3d((sint16)x, (sint16)y, (sint8)z));
+				}
+				q = strchr(q, ';');
+				if(  q  ) {
 					q++;
 				}
 			}
@@ -1498,24 +1570,13 @@ bool interlocking_manager_t::on_departure(rail_vehicle_t *v, sint32 &restart_spe
 		return false;
 	}
 	il_departure_t *dep = NULL;
-	il_station_t *st = find_departure_track(v->get_pos(), &dep);
+	uint16 k = route_t::INVALID_INDEX;
+	// no departure, or the train leaves the other way (not over a controlled end)
+	il_station_t *st = find_departure_of_train(v, &dep, k);
 	if(  st == NULL  ||  !st->manual  ) {
 		return false;
 	}
-	// the train must leave over the anchor (the platform end with the departure routes)
-	const route_t *rt = cnv->get_route();
 	const uint16 from = max(v->get_route_index(), (uint16)1) - 1;
-	uint16 k = route_t::INVALID_INDEX;
-	for(  uint32 i = from;  i < rt->get_count();  i++  ) {
-		if(  rt->at(i) == dep->anchor  ) {
-			k = (uint16)i;
-			break;
-		}
-	}
-	if(  k == route_t::INVALID_INDEX  ) {
-		// leaves the other way (not over the controlled end)
-		return false;
-	}
 
 	il_route_t *r = NULL;
 	FOR(vector_tpl<il_route_t *>, rr, routes) {
@@ -1623,6 +1684,14 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 				il_departure_t *d = file->is_loading() ? new il_departure_t() : st->departures[j];
 				d->anchor.rdwr(file);
 				rdwr_pos_vector(file, d->tiles);
+				if(  version >= 6  ) {
+					file->rdwr_byte(d->kind);
+				}
+				else if(  file->is_loading()  ) {
+					// before: a virtual signal on a track without platform was a shunting signal
+					const grund_t *agr = world()->lookup(d->anchor);
+					d->kind = agr  &&  agr->get_halt().is_bound() ? 0 : 1;
+				}
 				if(  file->is_loading()  ) {
 					st->departures.append(d);
 				}
@@ -1703,6 +1772,9 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 				}
 			}
 		}
+		if(  version >= 6  ) {
+			rdwr_pos_vector(file, st->siding_halts);
+		}
 		if(  file->is_loading()  ) {
 			stations.append(st);
 		}
@@ -1761,6 +1833,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		FOR(vector_tpl<il_slever_t *>, l, st->slevers) {
 			l->pos.rotate90(y_size);
 		}
+		for(  uint32 i = 0;  i < st->siding_halts.get_count();  i++  ) {
+			st->siding_halts[i].rotate90(y_size);
+		}
 		FOR(vector_tpl<il_point_t *>, pt, st->points) {
 			pt->pos.rotate90(y_size);
 			pt->a = ribi_t::rotate90(pt->a);
@@ -1802,6 +1877,11 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			st->kind == IL_RELAY ? "relay" : "electronic", st->rot, st->t_approach, st->t_shunt, st->t_throw, st->all_stop ? "true" : "false");
 		for(  uint32 i = 0;  i < st->operators.get_count();  i++  ) {
 			buf.printf("%s%u", i ? "," : "", st->operators[i]);
+		}
+		buf.append("],\"siding_halts\":[");
+		for(  uint32 i = 0;  i < st->siding_halts.get_count();  i++  ) {
+			buf.append(i ? "," : "");
+			append_json_pos(buf, st->siding_halts[i]);
 		}
 		buf.append("],\"slevers\":[");
 		for(  uint32 i = 0;  i < st->slevers.get_count();  i++  ) {
@@ -1861,9 +1941,8 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.append(i ? "," : "");
 			buf.append("{\"pos\":");
 			append_json_pos(buf, d->anchor);
-			const grund_t *agr = world()->lookup(d->anchor);
-			if(  agr  &&  !agr->get_halt().is_bound()  ) {
-				buf.append(",\"shunt\":true"); // virtual shunting signal on a siding
+			if(  d->kind == 1  ) {
+				buf.append(",\"shunt\":true"); // virtual shunting signal (siding)
 			}
 			buf.append(",\"tiles\":[");
 			convoihandle_t holder;
