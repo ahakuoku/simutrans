@@ -21,7 +21,8 @@
  * active player number / window data. It starts with a marker byte which can
  * never be a player number. An old savegame has the active player number there.
  */
-#define IL_SAVE_MARKER 0xA5
+#define IL_SAVE_MARKER 0xA5   // old format: the data follows directly (interlocking data versions 1..9)
+#define IL_BLOCK_MARKER 0xA6  // the data as one block with its length (il_blob_t), readable by later versions
 
 static bool restore_ui_suppressed = false;
 
@@ -46,9 +47,9 @@ void interlocking_hook_step()
 
 void interlocking_hook_save(loadsave_t *file)
 {
-	uint8 marker = IL_SAVE_MARKER;
+	uint8 marker = IL_BLOCK_MARKER;
 	file->rdwr_byte(marker);
-	interlocking_manager_t::get()->rdwr(file);
+	interlocking_manager_t::get()->save_block(file);
 }
 
 
@@ -61,7 +62,10 @@ void interlocking_hook_load(loadsave_t *file)
 	}
 	uint8 marker = 0;
 	file->rdwr_byte(marker);
-	if(  marker == IL_SAVE_MARKER  ) {
+	if(  marker == IL_BLOCK_MARKER  ) {
+		interlocking_manager_t::get()->load_block(file);
+	}
+	else if(  marker == IL_SAVE_MARKER  ) {
 		interlocking_manager_t::get()->rdwr(file);
 	}
 	else if(  env_t::restore_UI  ) {

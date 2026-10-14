@@ -105,6 +105,8 @@ def check(cond, text):
 
 def start_game(args, extra):
     env = dict(os.environ, TID_IL_PORT=str(PORT), TID_IL_DEBUG="1")
+    if "-scenario" in extra:
+        env["TID_IL_TEST_FUTURE"] = "1"
     log = open(os.path.join(args.workdir, "il_test_game.log"), "w")
     cmdline = [os.path.abspath(args.sim), "-set_workdir", args.workdir, "-singleuser", "-objects", "pak64/",
                "-lang", "en", "-nosound", "-nomidi", "-debug", "2", "-fps", "25"] + extra
@@ -435,6 +437,7 @@ def run(args):
             game.kill()
 
     time.sleep(1)
+    # the savegame was written with fields of a "later version" (TID_IL_TEST_FUTURE): they are skipped
     game = start_game(args, ["-load", "il_test"])
     try:
         p = Panel(PORT)

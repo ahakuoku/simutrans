@@ -16,6 +16,7 @@ class cbuffer_t;
 class loadsave_t;
 class player_t;
 class rail_vehicle_t;
+class il_blob_t;
 
 /// state of a route (Japanese: 進路)
 enum il_route_state_t {
@@ -170,7 +171,11 @@ public:
 
 	void step();
 
+	/// old savegames (data written directly into the savegame, versions 1..9)
 	void rdwr(loadsave_t *file);
+	/// the data as one block with its length (see il_blob_t): save / load
+	void save_block(loadsave_t *file);
+	void load_block(loadsave_t *file);
 	void rotate90(sint16 y_size);
 
 	// --- read only access for the external panel ---
@@ -194,6 +199,8 @@ private:
 
 	vector_tpl<il_station_t *> stations;
 	vector_tpl<il_route_t *> routes;
+
+	void rdwr_blob(il_blob_t &b);
 	uint16 next_id;
 
 	/// local events for the panel (not part of the game state)

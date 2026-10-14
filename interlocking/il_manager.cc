@@ -9,6 +9,7 @@
 
 #include "il_manager.h"
 #include "il_json.h"
+#include "il_blob.h"
 
 #include "../simworld.h"
 #include "../simconvoi.h"
@@ -2164,6 +2165,194 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 			routes.append(r);
 		}
 	}
+}
+
+
+// format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
+#define IL_BLOCK_VERSION 10
+
+void interlocking_manager_t::save_block(loadsave_t *file)
+{
+	il_blob_t b(false);
+	rdwr_blob(b);
+	uint32 len = b.data.get_count();
+	file->rdwr_long(len);
+	for(  uint32 i = 0;  i < len;  i++  ) {
+		file->rdwr_byte(b.data[i]);
+	}
+}
+
+
+void interlocking_manager_t::load_block(loadsave_t *file)
+{
+	il_blob_t b(true);
+	uint32 len = 0;
+	file->rdwr_long(len);
+	for(  uint32 i = 0;  i < len;  i++  ) {
+		uint8 v = 0;
+		file->rdwr_byte(v);
+		b.data.append(v);
+	}
+	rdwr_blob(b);
+	if(  b.broken  ) {
+		dbg->error("interlocking_manager_t::load_block()", "damaged interlocking data, ignored");
+		reset();
+	}
+}
+
+
+/// test only (TID_IL_TEST_FUTURE): writes fields that only a later version would know,
+/// to check that this version skips them when loading
+static void future_fields(il_blob_t &b)
+{
+	if(  !b.loading  &&  getenv("TID_IL_TEST_FUTURE")  ) {
+		uint32 x = 0xDEADBEEF;
+		plainstring s("a field of a later version");
+		b.rdwr_long(x);
+		b.rdwr_str(s);
+	}
+}
+
+
+void interlocking_manager_t::rdwr_blob(il_blob_t &b)
+{
+	// every station and route is a section: a newer version may add fields at their end,
+	// and new sections at the end of the block; this version skips what it does not know
+	if(  b.loading  ) {
+		reset();
+	}
+	b.begin_section();
+	uint16 version = IL_BLOCK_VERSION;
+	b.rdwr_short(version);
+	b.rdwr_short(next_id);
+
+	uint32 count = stations.get_count();
+	b.rdwr_long(count);
+	for(  uint32 i = 0;  i < count  &&  !b.broken;  i++  ) {
+		il_station_t *st = b.loading ? new il_station_t() : stations[i];
+		b.begin_section();
+		b.rdwr_short(st->id);
+		b.rdwr_str(st->name);
+		b.rdwr_byte(st->owner);
+		b.rdwr_bool(st->manual);
+		b.rdwr_pos_vector(st->signals);
+		uint32 n = st->departures.get_count();
+		b.rdwr_long(n);
+		for(  uint32 j = 0;  j < n  &&  !b.broken;  j++  ) {
+			il_departure_t *d = b.loading ? new il_departure_t() : st->departures[j];
+			b.begin_section();
+			b.rdwr_pos(d->anchor);
+			b.rdwr_pos_vector(d->tiles);
+			b.rdwr_byte(d->kind);
+			b.end_section();
+			if(  b.loading  ) {
+				st->departures.append(d);
+			}
+		}
+		b.rdwr_pos_vector(st->label_pos);
+		n = st->label_names.get_count();
+		b.rdwr_long(n);
+		for(  uint32 j = 0;  j < n  &&  !b.broken;  j++  ) {
+			plainstring nm = b.loading ? plainstring() : st->label_names[j];
+			b.rdwr_str(nm);
+			if(  b.loading  ) {
+				st->label_names.append(nm);
+			}
+		}
+		n = st->levers.get_count();
+		b.rdwr_long(n);
+		for(  uint32 j = 0;  j < n  &&  !b.broken;  j++  ) {
+			il_lever_t *lv = b.loading ? new il_lever_t() : st->levers[j];
+			b.begin_section();
+			b.rdwr_pos(lv->pos);
+			b.rdwr_str(lv->value);
+			b.rdwr_byte_vector(lv->pairs);
+			b.end_section();
+			if(  b.loading  ) {
+				st->levers.append(lv);
+			}
+		}
+		b.rdwr_byte(st->kind);
+		b.rdwr_byte(st->rot);
+		b.rdwr_short(st->t_approach);
+		b.rdwr_short(st->t_shunt);
+		b.rdwr_short(st->t_throw);
+		b.rdwr_bool(st->all_stop);
+		b.rdwr_byte_vector(st->operators);
+		n = st->slevers.get_count();
+		b.rdwr_long(n);
+		for(  uint32 j = 0;  j < n  &&  !b.broken;  j++  ) {
+			il_slever_t *l = b.loading ? new il_slever_t() : st->slevers[j];
+			b.begin_section();
+			b.rdwr_pos(l->pos);
+			b.rdwr_byte(l->side);
+			b.rdwr_bool(l->used);
+			b.rdwr_byte(l->lever);
+			b.end_section();
+			if(  b.loading  ) {
+				st->slevers.append(l);
+			}
+		}
+		n = st->points.get_count();
+		b.rdwr_long(n);
+		for(  uint32 j = 0;  j < n  &&  !b.broken;  j++  ) {
+			il_point_t *pt = b.loading ? new il_point_t() : st->points[j];
+			b.begin_section();
+			b.rdwr_pos(pt->pos);
+			b.rdwr_byte(pt->a);
+			b.rdwr_byte(pt->b);
+			b.rdwr_long(pt->moving_until);
+			b.end_section();
+			if(  b.loading  ) {
+				st->points.append(pt);
+			}
+		}
+		b.rdwr_pos_vector(st->siding_halts);
+		b.rdwr_pos_vector(st->pair_left);
+		b.rdwr_pos_vector(st->pair_right);
+		b.rdwr_pos_vector(st->side_pos);
+		b.rdwr_byte_vector(st->side_val);
+		b.rdwr_pos_vector(st->shunt_pos);
+		b.rdwr_byte_vector(st->shunt_col);
+		future_fields(b);
+		b.end_section();
+		if(  b.loading  ) {
+			stations.append(st);
+		}
+	}
+
+	count = routes.get_count();
+	b.rdwr_long(count);
+	for(  uint32 i = 0;  i < count  &&  !b.broken;  i++  ) {
+		il_route_t *r = b.loading ? new il_route_t() : routes[i];
+		b.begin_section();
+		b.rdwr_short(r->id);
+		b.rdwr_short(r->station);
+		b.rdwr_str(r->name);
+		b.rdwr_byte(r->state);
+		b.rdwr_pos_vector(r->tiles);
+		b.rdwr_bool(r->temp);
+		b.rdwr_long(r->ready_at);
+		b.rdwr_long(r->release_at);
+		b.rdwr_bool(r->shunt);
+		future_fields(b);
+		b.end_section();
+		if(  b.loading  ) {
+			r->convoy = convoihandle_t();
+			if(  r->tiles.empty()  ) {
+				delete r;
+				continue;
+			}
+			routes.append(r);
+		}
+	}
+	if(  !b.loading  &&  getenv("TID_IL_TEST_FUTURE")  ) {
+		// a whole section of a later version
+		b.begin_section();
+		future_fields(b);
+		b.end_section();
+	}
+	b.end_section();
 }
 
 
