@@ -213,6 +213,9 @@ private:
 	const char *cmd_cancel(il_route_t *r);
 	/// relay: turns a signal lever to 'L', 'R' or back to normal ('N')
 	const char *cmd_signal_lever(il_station_t *st, koord3d pos, char side);
+	/// checks a tile list "x:y:z;..." from a start point of the station along the track
+	const char *parse_path(il_station_t *st, const char *path, vector_tpl<koord3d> &tiles) const;
+	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);
 	/// route from a tile list made on the panel (start lever + destination button)
 	const char *cmd_set_path(il_station_t *st, const char *path, const char *name);
 	/// deletes temporary routes that are no longer set or occupied

@@ -619,7 +619,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "rt_def,", 7) == 0  ) {
 		max_fields = 9;
 	}
-	else if(  strncmp(buf, "set_path,", 9) == 0  ) {
+	else if(  strncmp(buf, "set_path,", 9) == 0  ||  strncmp(buf, "rt_path,", 8) == 0  ) {
 		max_fields = 4;
 	}
 	else if(  strncmp(buf, "rt_name,", 8) == 0  ) {
@@ -924,6 +924,23 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			push_event(ev);
 		}
 	}
+	else if(  strcmp(cmd, "rt_path") == 0  &&  n >= 3  ) {
+		// a predefined route along a given tile list (made by the panel)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		vector_tpl<koord3d> tiles;
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  (error = parse_path(st, f[2], tiles)) == NULL  ) {
+			il_route_t *r = new_route(st, tiles, n >= 4 ? f[3] : "", false);
+			cbuffer_t ev;
+			ev.printf("{\"type\":\"route_defined\",\"id\":%u,\"station\":%u,\"tiles\":%u}", r->id, st->id, r->tiles.get_count());
+			push_event(ev);
+		}
+	}
 	else if(  strcmp(cmd, "rt_del") == 0  &&  n >= 2  ) {
 		il_route_t *r = find_route((uint16)atoi(f[1]));
 		il_station_t *st = r ? find_station(r->station) : NULL;
@@ -1201,10 +1218,10 @@ const char *interlocking_manager_t::check_points(const il_route_t *r) const
 }
 
 
-const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *path, const char *name)
+const char *interlocking_manager_t::parse_path(il_station_t *st, const char *path, vector_tpl<koord3d> &tiles) const
 {
 	// path: "x:y:z;x:y:z;..." from the start point to the destination
-	vector_tpl<koord3d> tiles;
+	tiles.clear();
 	for(  const char *p = path;  p  &&  *p;  ) {
 		int x, y, z;
 		if(  sscanf(p, "%d:%d:%d", &x, &y, &z) != 3  ) {
@@ -1222,6 +1239,51 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 	if(  !is_start_point(st, tiles[0])  ) {
 		return "start is not a registered signal of this station";
 	}
+	// the path must follow the track in the direction of travel
+	ribi_t::ribi prev = ribi_t::none;
+	for(  uint32 i = 0;  i + 1 < tiles.get_count();  i++  ) {
+		grund_t *gr = world()->lookup(tiles[i]);
+		weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+		const koord diff = tiles[i + 1].get_2d() - tiles[i].get_2d();
+		const ribi_t::ribi d = ribi_t::is_single(ribi_type(diff)) ? ribi_type(diff) : (ribi_t::ribi)ribi_t::none;
+		grund_t *to = NULL;
+		if(  w == NULL  ) {
+			return "the path does not follow the track";
+		}
+		// at a virtual departure the train may leave the platform end in any direction
+		const ribi_t::ribi allowed = (i == 0  &&  find_departure_anchor(tiles[0])) ? w->get_ribi_unmasked() : w->get_ribi();
+		if(  d == ribi_t::none  ||  (allowed & d) == 0  ||  (prev != ribi_t::none  &&  d == ribi_t::backward(prev))
+			||  !gr->get_neighbour(to, track_wt, d)  ||  to->get_pos() != tiles[i + 1]  ) {
+			return "the path does not follow the track";
+		}
+		prev = d;
+	}
+	return NULL;
+}
+
+
+il_route_t *interlocking_manager_t::new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp)
+{
+	il_route_t *r = new il_route_t();
+	r->id = next_id++;
+	r->station = st->id;
+	r->name = name;
+	r->temp = temp;
+	FOR(vector_tpl<koord3d>, const &t, tiles) {
+		r->tiles.append(t);
+	}
+	r->state = IL_IDLE;
+	routes.append(r);
+	return r;
+}
+
+
+const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *path, const char *name)
+{
+	vector_tpl<koord3d> tiles;
+	if(  const char *e = parse_path(st, path, tiles)  ) {
+		return e;
+	}
 	il_slever_t *lever = NULL;
 	if(  st->kind == IL_RELAY  ) {
 		// relay: the signal lever has to be turned first, once per route
@@ -1233,34 +1295,7 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 			return "turn the lever back first";
 		}
 	}
-	// the path must follow the track in the direction of travel
-	ribi_t::ribi prev = ribi_t::none;
-	for(  uint32 i = 0;  i + 1 < tiles.get_count();  i++  ) {
-		grund_t *gr = world()->lookup(tiles[i]);
-		weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
-		const koord diff = tiles[i + 1].get_2d() - tiles[i].get_2d();
-		const ribi_t::ribi d = ribi_t::is_single(ribi_type(diff)) ? ribi_type(diff) : (ribi_t::ribi)ribi_t::none;
-		grund_t *to = NULL;
-		// at a virtual departure the train may leave the platform end in any direction
-		if(  w == NULL  ) {
-			return "the path does not follow the track";
-		}
-		const ribi_t::ribi allowed = (i == 0  &&  find_departure_anchor(tiles[0])) ? w->get_ribi_unmasked() : w->get_ribi();
-		if(  d == ribi_t::none  ||  (allowed & d) == 0  ||  (prev != ribi_t::none  &&  d == ribi_t::backward(prev))
-			||  !gr->get_neighbour(to, track_wt, d)  ||  to->get_pos() != tiles[i + 1]  ) {
-			return "the path does not follow the track";
-		}
-		prev = d;
-	}
-	il_route_t *r = new il_route_t();
-	r->id = next_id++;
-	r->station = st->id;
-	r->name = name;
-	r->temp = true;
-	FOR(vector_tpl<koord3d>, const &t, tiles) {
-		r->tiles.append(t);
-	}
-	routes.append(r);
+	il_route_t *r = new_route(st, tiles, name, true);
 	const char *error = cmd_set(r);
 	if(  error  ) {
 		routes.remove(r);

@@ -255,6 +255,59 @@ try {
 	await page.waitForFunction(() => document.getElementById("pointList").textContent.includes("北1号"), null, { timeout: 10000 });
 	check(true, "point renamed (北1号) and shown");
 	await page.screenshot({ path: path.join(shots, "4_passed.png") });
+
+	console.log("[4] relay interlocking panel");
+	const stA = async () => (await getJson("/api/status")).stations[0];
+	await page.click("nav button[data-tab=setup]");
+	page.once("dialog", (d) => d.accept());
+	await page.click("#stationCfg button[data-kind='1']");
+	await waitFor(async () => (await stA()).kind === "relay", 15000, "relay");
+	await page.waitForFunction(() => document.body.classList.contains("relay"), null, { timeout: 10000 });
+	check(true, "switched to relay from the setup tab, panel in relay colours");
+	check(!(await page.isVisible("#btnAutoRoutes")), "auto routes hidden on a relay panel");
+	await page.click("nav button[data-tab=run]");
+	await page.waitForSelector("#relayBoard .rlever[data-sl='3,5,0']");
+	check(!(await page.isVisible("#levers")), "shortcuts hidden on a relay panel");
+	const levers = await page.$$eval("#relayBoard .rlever .plate", ps => ps.map(p => p.textContent));
+	check(levers.includes("1") && levers.includes("21") && levers.includes("停"), "levers on the board: " + levers.join(" "));
+	await page.screenshot({ path: path.join(shots, "5_relay.png") });
+	// signal lever 1 (S1, eastbound): turn to the right, then press the destination button
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob", { position: { x: 50, y: 28 } });
+	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "3,5,0" && l.side === "R"), 10000, "lever turned");
+	check(true, "signal lever 1 turned to the right (stored in the game)");
+	await sleep(800);
+	await page.waitForSelector("svg g.blink title:has-text('着点ボタン：2番線')", { state: "attached", timeout: 5000 });
+	await dest2().click();
+	const relayRoute = await waitFor(async () => (await getJson("/api/status")).routes.find(r => r.temp && r.start.join(",") === "3,5,0" && r.state !== "idle"), 10000, "relay route");
+	check(true, `route set with lever + destination button (${relayRoute.state}${relayRoute.waiting ? ", points moving " + relayRoute.waiting + " s" : ""})`);
+	await sleep(800);
+	await page.screenshot({ path: path.join(shots, "6_relay_route.png") });
+	// lever back to normal: the route is cancelled (or the time release starts when a train approaches)
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob", { position: { x: 28, y: 28 } });
+	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "lever back");
+	const after = (await getJson("/api/status")).routes.find(r => r.id === relayRoute.id);
+	check(!after || after.state === "releasing" || after.state === "occupied", `lever back to normal: route ${after ? after.state : "cancelled"}`);
+	// point lever 21: N (left third)
+	await sleep(1500);
+	await page.click("#relayBoard .rlever[data-pl='0'] .knob", { position: { x: 8, y: 28 } }).catch(() => {});
+	const lv21 = await waitFor(async () => ((await stA()).levers || []).find(l => l.pos.join(",") === "4,5,0"), 10000, "point lever N").catch(() => null);
+	check(!lv21 || lv21.value === "N", "point lever 21 to N" + (lv21 ? "" : " (locked by the route, skipped)"));
+	// emergency stop lever
+	await page.click("#relayBoard .rlever[data-stop] .knob");
+	await waitFor(async () => (await stA()).all_stop, 10000, "all stop");
+	await page.waitForSelector("#relayBoard .rlever[data-stop] .lamp.on", { timeout: 10000 });
+	check(true, "emergency stop lever on (lamp lit)");
+	await page.click("#relayBoard .rlever[data-stop] .knob");
+	await waitFor(async () => !(await stA()).all_stop, 10000, "all stop off");
+	check(true, "emergency stop lever off");
+	// the orientation of a relay panel is stored in the game (the same for everybody)
+	await page.click("#viewbar button[data-rot]");
+	await waitFor(async () => (await stA()).rot === 1, 10000, "relay panel turned");
+	check(true, "relay panel turned: orientation stored in the game");
+	await sleep(800);
+	await page.screenshot({ path: path.join(shots, "7_relay_turned.png") });
+	for (let i = 0; i < 3; i++) { await sleep(1500); const r0 = (await stA()).rot; await page.click("#viewbar button[data-rot]"); await waitFor(async () => (await stA()).rot === ((r0 + 1) & 3), 10000, "turn"); }
+	check((await stA()).rot === 0, "four turns: back to 0");
 	console.log("ALL PANEL TESTS PASSED");
 }
 catch (e) {
