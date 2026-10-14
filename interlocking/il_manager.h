@@ -237,6 +237,8 @@ private:
 	const char *cmd_cancel(il_route_t *r);
 	/// relay: turns a signal lever to 'L', 'R' or back to normal ('N')
 	const char *cmd_signal_lever(il_station_t *st, koord3d pos, char side, uint8 lever);
+	/// the train stops on this platform track (its destination is there or in the same stop)
+	bool train_stops_on(const convoi_t *cnv, const il_departure_t *dep) const;
 	/// the route ends right behind a train standing on the track (trains one behind the other)
 	bool ends_behind_train(const il_route_t *r) const;
 	/// number of tiles at the end of the route on the same platform / siding track

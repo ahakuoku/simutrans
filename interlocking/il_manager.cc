@@ -382,6 +382,19 @@ const char *interlocking_manager_t::siding_track(koord3d pos, vector_tpl<koord3d
 }
 
 
+bool interlocking_manager_t::train_stops_on(const convoi_t *cnv, const il_departure_t *dep) const
+{
+	// the train stops on this platform (its destination is a tile of it, or of the same stop)
+	const koord3d dest = cnv->get_route()->back();
+	if(  dep->tiles.is_contained(dest)  ) {
+		return true;
+	}
+	const grund_t *a = world()->lookup(dep->anchor);
+	const grund_t *d = world()->lookup(dest);
+	return a  &&  d  &&  a->get_halt().is_bound()  &&  a->get_halt() == d->get_halt();
+}
+
+
 bool interlocking_manager_t::ends_behind_train(const il_route_t *r) const
 {
 	const uint32 n = r->tiles.get_count();
@@ -1320,6 +1333,10 @@ const char *interlocking_manager_t::cmd_set(il_route_t *r)
 			return "another route from this signal is set";
 		}
 		FOR(vector_tpl<koord3d>, const &t, r->tiles) {
+			// a route may start where another ends (home route up to the platform end, departure route from there)
+			if(  (t == r->tiles[0]  &&  t == o->tiles.back())  ||  (t == r->tiles.back()  &&  t == o->tiles[0])  ) {
+				continue;
+			}
 			if(  o->tiles.is_contained(t)  ) {
 				return "conflicting route is set";
 			}
@@ -1782,9 +1799,45 @@ bool interlocking_manager_t::admit_train(rail_vehicle_t *v, uint16 start, il_rou
 			return false;
 		}
 	}
+	// a train passing a platform with a virtual departure signal needs the departure route, too
+	// (場内 + 出発): it waits at the home signal until both are set, then runs through both
+	il_route_t *through = NULL;
+	il_route_t combined;
+	const il_route_t *plan = r;
+	if(  r->state == IL_SET  ) {
+		il_departure_t *dep = NULL;
+		const koord3d end = r->tiles.back();
+		if(  find_departure_track(end, &dep)  &&  dep->anchor != r->tiles[0]  &&  !dep->tiles.is_contained(r->tiles[0])  &&  !train_stops_on(cnv, dep)  ) {
+			FOR(vector_tpl<il_route_t *>, o, routes) {
+				if(  o->tiles[0] == dep->anchor  &&  o->state == IL_SET  &&  !o->shunt  ) {
+					through = o;
+				}
+			}
+			if(  through == NULL  ||  !may_clear(through)  ) {
+				restart_speed = 0;
+				return false;
+			}
+			// home route, on along the platform to its end, then the departure route
+			FOR(vector_tpl<koord3d>, const &t, r->tiles) {
+				combined.tiles.append(t);
+			}
+			vector_tpl<koord3d> along;
+			if(  end != dep->anchor  &&  find_path(end, dep->anchor, along)  ) {
+				for(  uint32 i = 1;  i < along.get_count();  i++  ) {
+					combined.tiles.append(along[i]);
+				}
+			}
+			for(  uint32 i = 1;  i < through->tiles.get_count();  i++  ) {
+				combined.tiles.append(through->tiles[i]);
+			}
+			combined.id = r->id;
+			combined.state = IL_SET;
+			plan = &combined;
+		}
+	}
 	if(  r->state == IL_SET  ) {
 		vector_tpl<koord3d> tiles;
-		if(  !build_train_route(v, start, r, tiles)  ) {
+		if(  !build_train_route(v, start, plan, tiles)  ) {
 			// report only once per route and train (the train checks again and again)
 			const uint32 key = ((uint32)r->id << 16) | cnv->self.get_id();
 			if(  key != last_wrong_route  ) {
@@ -1816,6 +1869,10 @@ bool interlocking_manager_t::admit_train(rail_vehicle_t *v, uint16 start, il_rou
 		cnv->set_next_stop_index(min(next_crossing, next_signal));
 		r->convoy = cnv->self;
 		set_route_state(r, IL_OCCUPIED);
+		if(  through  ) {
+			through->convoy = cnv->self;
+			set_route_state(through, IL_OCCUPIED);
+		}
 		return true;
 	}
 	restart_speed = 0;
