@@ -370,7 +370,7 @@ function renderRelayBoard() {
 			${barKnob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
 		<div class="rlever" data-buzz="1" title="接近電響：列車が信号で待つと音で知らせる（このブラウザだけ）">
 			<div class="lamps">${lamp(buzzerOn, "var(--green)")}</div>
-			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響</div>${audioBlocked() ? `<span class="timer dim">画面を一度クリックすると鳴ります</span>` : ""}</div>
+			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響<br><b class="onoff ${buzzerOn ? "on" : ""}">${buzzerOn ? "入（オン）" : "切（オフ）"}</b></div>${audioBlocked() ? `<span class="timer dim">画面を一度クリックすると鳴ります</span>` : ""}</div>
 	</div>
 	<div class="rlegend">
 		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>
