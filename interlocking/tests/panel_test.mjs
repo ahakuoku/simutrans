@@ -404,13 +404,30 @@ try {
 	check(beeps[0] === 1 && beeps[1] === 1, `buzzer sounds once for a new train at S1 while the setup tab is shown (${beeps})`);
 	await page.click("nav button[data-tab=run]");
 	await page.waitForSelector("#relayBoard [data-buzz]");
-	check((await page.textContent("#relayBoard [data-buzz]")).includes("切（オフ）"), "the buzzer says it is off");
-	await page.click("#relayBoard [data-buzz] .pushbtn");
+	check((await page.textContent("#relayBoard [data-buzz]")).includes("切（オフ）"), "the buzzer switch says it is off");
+	await page.click("#relayBoard [data-buzz] .knob");
 	await waitFor(async () => (await page.textContent("#relayBoard [data-buzz]")).includes("入（オン）"), 5000, "buzzer on");
-	await page.locator("#relayBoard [data-buzz]").screenshot({ path: path.join(shots, "buzzer_on.png") });
-	await page.click("#relayBoard [data-buzz] .pushbtn");
+	// a train arrives: the buzzer rings until 確認 is pressed
+	await page.evaluate(() => {
+		window.__beeps = 0; window.__realBeep = beep; beep = () => { window.__beeps++; };
+		lastWaiting = new Set();
+		// a train waiting at S1 in every status update (the panel refreshes the status from the game)
+		window.__realCheck = checkApproach;
+		checkApproach = (st) => window.__realCheck({ signals: st.signals.map(x => x.pos.join(",") === "3,5,0" ? Object.assign({}, x, { train: "test train", aspect: "red" }) : x) });
+		render();
+	});
+	await waitFor(async () => (await page.textContent("#relayBoard [data-ack]")).includes("鳴動中"), 5000, "ringing");
+	await sleep(2600);
+	const rang = await page.evaluate(() => window.__beeps);
+	check(rang >= 2, `the buzzer keeps ringing until 確認 (${rang} tones)`);
+	await page.locator("#relayBoard [data-buzz]").locator("..").screenshot({ path: path.join(shots, "buzzer_on.png") });
+	await page.click("#relayBoard [data-ack] .pushbtn");
+	await sleep(2600);
+	const ackd = await page.evaluate(() => { const n = window.__beeps; beep = window.__realBeep; checkApproach = window.__realCheck; return [n, ringing]; });
+	check(ackd[0] === rang && ackd[1] === null && !(await page.textContent("#relayBoard [data-ack]")).includes("鳴動中"), "確認 stops it");
+	await page.click("#relayBoard [data-buzz] .knob");
 	await waitFor(async () => (await page.textContent("#relayBoard [data-buzz]")).includes("切（オフ）"), 5000, "buzzer off");
-	check(true, "the buzzer says 入（オン） / 切（オフ）");
+	check(true, "the buzzer switch says 入（オン） / 切（オフ）");
 	// operating areas (扱い区分): S1 belongs to 西扱い; this browser takes 東扱い, so S1 is dimmed and cannot be turned
 	const api = (c) => page.evaluate((c) => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: c.replace("ST", station().id) }), c);
 	await api("ar_name,ST,1,東扱い"); await sleep(300); await api("ar_name,ST,2,西扱い"); await sleep(300); await api("ar_pos,ST,3,5,0,2");

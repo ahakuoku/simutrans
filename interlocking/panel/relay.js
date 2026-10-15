@@ -11,6 +11,8 @@ let buzzerOn = false;         // approach buzzer (接近電響), per browser
 try { buzzerOn = localStorage.getItem("il.buzzer") === "1"; } catch (e) {}
 let audioCtx = null;
 let lastWaiting = new Set();
+let ringing = null;            // approach buzzer ringing: the trains that started it (until 確認 is pressed)
+let ringTimer = null;
 
 // direction of travel at a start point (signal or virtual departure)
 function startTravelDir(st, pos) {
@@ -237,11 +239,23 @@ function beep() {
 		o.stop(audioCtx.currentTime + 0.6);
 	} catch (e) {}
 }
+// the buzzer rings (a tone every 1.2 s) from the arrival of a train until the operator presses 確認,
+// or until no train that started it waits at a signal any more
+function startRinging(keys) {
+	ringing = new Set([...(ringing || []), ...keys]);
+	if (!ringTimer) { beep(); ringTimer = setInterval(beep, 1200); }
+}
+function stopRinging() {
+	ringing = null;
+	if (ringTimer) { clearInterval(ringTimer); ringTimer = null; }
+}
 function checkApproach(st) {
 	const now = new Set();
 	for (const s of st.signals) if (s.train && s.aspect === "red") now.add(key(s.pos) + "|" + s.train);
 	// only trains approaching the station (waiting at its signals), not trains waiting to depart
-	if (buzzerOn && [...now].some(k => !lastWaiting.has(k))) beep();
+	const fresh = [...now].filter(k => !lastWaiting.has(k));
+	if (buzzerOn && fresh.length) startRinging(fresh);
+	if (ringing && ![...ringing].some(k => now.has(k))) stopRinging();
 	lastWaiting = now;
 }
 
@@ -368,9 +382,13 @@ function renderRelayBoard() {
 		<div class="rlever" data-mode="1" title="駅扱切換てこ：左＝CTC集中（自動）、右＝駅扱（扱者）">
 			<div class="lamps">${lamp(!st.manual, "#f4f1e6")}${lamp(st.manual, "var(--green)")}</div>
 			${barKnob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
-		<div class="rlever" data-buzz="1" title="接近電響：列車が信号で待つと音で知らせる（このブラウザだけ）">
-			<div class="lamps">${lamp(buzzerOn, "var(--green)")}</div>
-			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響<br><b class="onoff ${buzzerOn ? "on" : ""}">${buzzerOn ? "入（オン）" : "切（オフ）"}</b></div>${audioBlocked() ? `<span class="timer dim">画面を一度クリックすると鳴ります</span>` : ""}</div>
+		<div class="rlever" data-buzz="1" title="接近電響スイッチ：入にすると、列車が信号で待つと電響が鳴る（このブラウザだけ）">
+			<div class="lamps">${lamp(!buzzerOn, "#f4f1e6")}${lamp(buzzerOn, "var(--green)")}</div>
+			${barKnob("#e9ebe4", buzzerOn ? 45 : -45, "切　　入")}${sideBtns("◀", "▶", false, false, !buzzerOn, buzzerOn)}<div class="plate">電響</div>
+			<div class="lname">接近電響<br><b class="onoff ${buzzerOn ? "on" : ""}">${buzzerOn ? "入（オン）" : "切（オフ）"}</b></div>${audioBlocked() ? `<span class="timer dim">画面を一度クリックすると鳴ります</span>` : ""}</div>
+		<div class="rlever" data-ack="1" title="電響確認：鳴っている接近電響を止める（次の列車でまた鳴る）">
+			<div class="lamps">${lamp(!!ringing, "var(--yellow)", ringing ? "blink" : "")}</div>
+			<span class="pushbtn ${ringing ? "on" : ""}"></span><div class="plate">確認</div><div class="lname">電響確認${ringing ? `<br><b class="onoff on blink">鳴動中</b>` : ""}</div></div>
 	</div>
 	<div class="rlegend">
 		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>
@@ -419,12 +437,16 @@ function renderRelayBoard() {
 	const setMode = (manual) => { if (manual !== st.manual) command(`st_mode,${st.id},${manual ? 1 : 0}`, manual ? "駅扱" : "CTC集中"); };
 	box.querySelector("[data-mode] .knob").addEventListener("click", () => setMode(!st.manual));
 	for (const b of box.querySelectorAll("[data-mode] [data-side]")) b.addEventListener("click", () => setMode(b.dataset.side === "R"));
-	box.querySelector("[data-buzz] .pushbtn").addEventListener("click", () => {
-		buzzerOn = !buzzerOn;
+	const setBuzzer = (on) => {
+		if (on === buzzerOn) return;
+		buzzerOn = on;
 		try { localStorage.setItem("il.buzzer", buzzerOn ? "1" : "0"); } catch (e) {}
-		if (buzzerOn) beep();
+		if (buzzerOn) beep(); else stopRinging();
 		renderRelayBoard();
-	});
+	};
+	box.querySelector("[data-buzz] .knob").addEventListener("click", () => setBuzzer(!buzzerOn));
+	for (const b of box.querySelectorAll("[data-buzz] [data-side]")) b.addEventListener("click", () => setBuzzer(b.dataset.side === "R"));
+	box.querySelector("[data-ack] .pushbtn").addEventListener("click", () => { stopRinging(); renderRelayBoard(); });
 }
 
 // ---------------------------------------------------------------------------
