@@ -212,6 +212,19 @@ function pointLamp(st, pt) {
 	return { pos, moving: p.moving };
 }
 
+// browsers keep sound off until the page is clicked once: after a reload the buzzer would stay silent,
+// so the sound is (re)started on the first click anywhere on the page
+function unlockAudio() {
+	try {
+		audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+		if (audioCtx.state === "suspended") audioCtx.resume();
+	} catch (e) {}
+}
+document.addEventListener("pointerdown", unlockAudio, true);
+document.addEventListener("keydown", unlockAudio, true);
+// the buzzer is on but the browser does not allow sound yet (no click since the page was loaded)
+const audioBlocked = () => buzzerOn && (!audioCtx || audioCtx.state !== "running");
+
 // an approach buzzer: a short tone when a new train waits at a signal of this station
 function beep() {
 	try {
@@ -300,7 +313,6 @@ function renderRelayBoard() {
 	const box = document.getElementById("relayBoard");
 	const st = station();
 	if (!st || !isRelay()) { box.innerHTML = ""; box.dataset.html = ""; return; }
-	checkApproach(st);
 	const act = (pos, sh = false) => status.routes.find(r => key(r.start) === key(pos) && !!r.shunt === sh && r.state !== "idle");
 	let html = `<h2>信号てこ</h2><div class="rboard">`;
 	for (const l of signalLevers(st)) {
@@ -358,7 +370,7 @@ function renderRelayBoard() {
 			${barKnob("#e9ebe4", st.manual ? 45 : -45, "集中　駅扱")}${sideBtns("◀", "▶", false, false, !st.manual, st.manual)}<div class="plate">扱</div><div class="lname">駅扱切換</div></div>
 		<div class="rlever" data-buzz="1" title="接近電響：列車が信号で待つと音で知らせる（このブラウザだけ）">
 			<div class="lamps">${lamp(buzzerOn, "var(--green)")}</div>
-			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響</div></div>
+			<span class="pushbtn ${buzzerOn ? "on" : ""}"></span><div class="plate">電響</div><div class="lname">接近電響</div>${audioBlocked() ? `<span class="timer dim">画面を一度クリックすると鳴ります</span>` : ""}</div>
 	</div>
 	<div class="rlegend">
 		<div><b>てこの使い方</b>：つまみを押すと ひねる／戻す（転てつてこは C）。◀ ▶ で左右に倒す（転てつてこは N・R）。</div>

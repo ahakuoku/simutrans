@@ -389,6 +389,20 @@ try {
 	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "lv_shunt," + station().id + ",3,5,0,N" }));
 	await waitFor(async () => !((await stA()).shunt_levers || []).length, 10000, "shunting lever removed");
 	check(true, "shunting lever turned and back, removed");
+	// approach buzzer (接近電響): it listens on every tab, also while the setup tab is shown
+	await page.click("nav button[data-tab=setup]");
+	const beeps = await page.evaluate(() => {
+		let n = 0; const realBeep = beep; beep = () => { n++; };
+		const was = buzzerOn; buzzerOn = true; lastWaiting = new Set();
+		const s1 = station().signals.find(s => s.pos.join(",") === "3,5,0");
+		const saved = { train: s1.train, aspect: s1.aspect };
+		Object.assign(s1, { train: "test train", aspect: "red" }); render();
+		const first = n; render();
+		Object.assign(s1, saved); buzzerOn = was; beep = realBeep; lastWaiting = new Set(); render();
+		return [first, n];
+	});
+	check(beeps[0] === 1 && beeps[1] === 1, `buzzer sounds once for a new train at S1 while the setup tab is shown (${beeps})`);
+	await page.click("nav button[data-tab=run]");
 	// operating areas (扱い区分): S1 belongs to 西扱い; this browser takes 東扱い, so S1 is dimmed and cannot be turned
 	const api = (c) => page.evaluate((c) => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: c.replace("ST", station().id) }), c);
 	await api("ar_name,ST,1,東扱い"); await sleep(300); await api("ar_name,ST,2,西扱い"); await sleep(300); await api("ar_pos,ST,3,5,0,2");

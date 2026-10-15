@@ -14,6 +14,8 @@ function el(name, attrs, parent) {
 
 function render() {
 	document.body.classList.toggle("relay", isRelay());
+	// the approach buzzer listens on every tab (not only while the relay board is shown)
+	if (station() && isRelay()) checkApproach(station());
 	renderHeader();
 	renderViewbar();
 	renderMap();
