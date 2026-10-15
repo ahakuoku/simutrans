@@ -373,9 +373,11 @@ function renderRun() {
 	if (!st) { lv.innerHTML = ""; ap.innerHTML = ""; hint.textContent = ""; return; }
 
 	// approach indication: a train holds an interlocked signal at danger
-	const waiting = st.signals.filter(s => s.train && s.aspect === "red").map(s => `<div>${signalLabel(st, s.pos)}：${esc(s.train)} 待機中</div>`);
+	// the line (路線) of the train often names its type (普通・快速 …): shown first, then the train and its next stop
+	const train = (x) => `${x.line ? `<span class="linename">${esc(x.line)}</span> ` : ""}${esc(x.train)}${x.dest ? ` <span class="hint">次 ${esc(x.dest)}</span>` : ""}`;
+	const waiting = st.signals.filter(s => s.train && s.aspect === "red").map(s => `<div>${signalLabel(st, s.pos)}：${train(s)} 待機中</div>`);
 	const leaving = (st.departures || []).filter(d => d.train && d.waiting && !status.routes.some(r => key(r.start) === key(d.pos) && r.state !== "idle"))
-		.map(d => `<div>${signalLabel(st, d.pos)}：${esc(d.train)} ${d.shunt ? "入換待ち" : "発車待ち"}</div>`);
+		.map(d => `<div>${signalLabel(st, d.pos)}：${train(d)} ${d.shunt ? "入換待ち" : "発車待ち"}</div>`);
 	ap.innerHTML = waiting.concat(leaving).join("") || `<span class="hint">待っている列車はありません</span>`;
 
 	// routes that are set or occupied

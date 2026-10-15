@@ -156,6 +156,7 @@ body.relay header h1::after { content: "　継電"; font-size: 12px; color: #9fd
 .rlever.sel { outline: 2px solid var(--yellow); }
 .rlever.locked { opacity: .8; }
 .rlever.other, #map .mapknob.other, #map g.other { opacity: .38; }
+.linename { display: inline-block; padding: 0 5px; border-radius: 3px; background: var(--accent); color: #fff; font-weight: 700; font-size: .92em; }
 .areaname { display: inline-flex; gap: 2px; margin-right: 6px; }
 .rlever .knob { cursor: pointer; display: block; }
 .rlever .knob g { transition: transform .25s ease; }

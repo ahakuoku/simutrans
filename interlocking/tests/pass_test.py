@@ -28,7 +28,13 @@ def run(args):
         home = ";".join(f"{x}:5:0" for x in range(3, 9))
         dep = ";".join(f"{x}:5:0" for x in range(8, 14))
         # the train only stops at B: it passes platform 1
-        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cid},0|0|0|2|0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|1,5,0,0,0,0,0,0,0,0,0,100,0,0|")
+        # on a line named after the type of train (快速): the approach indication shows it
+        sched = "0|0|0|2|0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|1,5,0,0,0,0,0,0,0,0,0,100,0,0|"
+        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_LINE')} c,0,2,0,{sched}")
+        time.sleep(1)
+        p.request(f"debug_tool {simple_tool_id('TOOL_RENAME')} l1,快速")
+        time.sleep(1)
+        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} l,{cid},1")
         time.sleep(1)
         p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cid}")
         wait_until(lambda: tuple(conv()["pos"]) == (3, 5, 0), 60, "train at S1")
@@ -37,6 +43,8 @@ def run(args):
         check(p.cmd(f"set_path,{sid},{home},home")["ok"], "home route S1 -> platform 1")
         time.sleep(6)
         check(tuple(conv()["pos"]) == (3, 5, 0), f"train still waits at S1 ({conv()['pos']})")
+        s1 = p.status()["stations"][0]["signals"][0]
+        check(s1.get("line") == "快速" and s1.get("dest") and s1.get("train"), f"approach indication: line and next stop of the train ({s1})")
         hr = [r for r in p.status()["routes"] if r["name"] == "home"][0]
         check(hr["state"] == "set", "home route still set, not entered")
 

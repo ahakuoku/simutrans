@@ -31,7 +31,11 @@ p = Panel(13360)
 cid = p.request("debug_convoys")["convoys"][0]["id"]
 p.cmd("st_new,T"); sid = p.status()["stations"][0]["id"]
 p.cmd(f"sig_add,{sid},3,5,0"); p.cmd(f"dep_add,{sid},12,9,0,S"); p.cmd(f"dep_add,{sid},8,5,0"); p.cmd(f"lv_shunt,{sid},8,5,0,G"); p.cmd(f"st_mode,{sid},1")
-p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cid},0|0|0|2|0|12,9,0,0,0,0,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|")
+p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_LINE')} c,0,2,0,0|0|0|2|0|12,9,0,0,0,0,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|")
+time.sleep(1)
+p.request(f"debug_tool {simple_tool_id('TOOL_RENAME')} l1,快速")
+time.sleep(1)
+p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} l,{cid},1")
 time.sleep(1)
 p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cid}")
 while tuple(p.request("debug_convoys")["convoys"][0]["pos"]) != (3,5,0): time.sleep(0.5)
@@ -53,6 +57,11 @@ while p.request("debug_convoys")["convoys"][0]["stop"] != 1: time.sleep(0.5)
 	await sleep(2000);
 	await page.click("nav button[data-tab=run]");
 	await sleep(1500);
+	// approach indication: the train waiting in the siding stop, with its line (列車種別) and next stop
+	for (let i = 0; i < 60 && !(await page.textContent("#approach")).includes("快速"); i++) await sleep(500);
+	const ap = await page.textContent("#approach");
+	check(ap.includes("快速") && ap.includes("次 "), "approach indication shows the line and the next stop: " + ap.trim());
+	await page.locator("#approach").screenshot({ path: path.join(shots, "approach_line.png") });
 	// electronic panel: S1 -> destination buttons
 	// the departure signal of platform 1 itself: no 手前
 	await page.evaluate(() => { nxStart = { pos: [8, 5, 0], dep: true }; render(); });

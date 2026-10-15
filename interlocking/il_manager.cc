@@ -14,6 +14,7 @@
 #include "../simworld.h"
 #include "../simconvoi.h"
 #include "../simhalt.h"
+#include "../simline.h"
 #include "../boden/grund.h"
 #include "../boden/wege/schiene.h"
 #include "../obj/signal.h"
@@ -395,6 +396,27 @@ const char *interlocking_manager_t::siding_track(koord3d pos, vector_tpl<koord3d
 		return "click the track end where trains leave";
 	}
 	return NULL;
+}
+
+
+/// approach indication: name of the train, its line (路線: the type of train is often written there) and its next stop
+static void append_train(cbuffer_t &buf, convoihandle_t cnv)
+{
+	buf.append(",\"train\":");
+	append_json_string(buf, cnv->get_name());
+	const linehandle_t line = cnv->get_line();
+	if(  line.is_bound()  ) {
+		buf.append(",\"line\":");
+		append_json_string(buf, line->get_name());
+	}
+	const schedule_t *sch = cnv->get_schedule();
+	if(  sch  &&  !sch->empty()  ) {
+		const halthandle_t h = haltestelle_t::get_halt(sch->get_current_entry().pos, cnv->get_owner());
+		if(  h.is_bound()  ) {
+			buf.append(",\"dest\":");
+			append_json_string(buf, h->get_name());
+		}
+	}
 }
 
 
@@ -2648,8 +2670,7 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			const schiene_t *sch = get_rail(pos);
 			const convoihandle_t holder = sch ? sch->get_reserved_convoi() : convoihandle_t();
 			if(  holder.is_bound()  ) {
-				buf.append(",\"train\":");
-				append_json_string(buf, holder->get_name());
+				append_train(buf, holder);
 			}
 			buf.append("}");
 		}
@@ -2696,8 +2717,7 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			}
 			buf.append("]");
 			if(  holder.is_bound()  ) {
-				buf.append(",\"train\":");
-				append_json_string(buf, holder->get_name());
+				append_train(buf, holder);
 				buf.printf(",\"waiting\":%s", holder->is_waiting() ? "true" : "false");
 			}
 			buf.append("}");
