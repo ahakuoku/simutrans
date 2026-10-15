@@ -364,6 +364,22 @@ function mostVisibleZ() {
 	return best;
 }
 
+// a line name like "【会社】[○○線][快速] Ａ～Ｂ": the last [...] is the type of train (a badge), the company
+// in 【】 is left out, the rest follows in small letters; a name without [...] is the badge as a whole
+function splitLineName(name) {
+	let s = String(name || "").replace(/【[^】]*】/g, "").trim();
+	const parts = [...s.matchAll(/\[([^\]]*)\]/g)];
+	if (!parts.length) return { type: s, rest: "" };
+	const last = parts[parts.length - 1];
+	const rest = (s.slice(0, last.index) + s.slice(last.index + last[0].length)).replace(/\s+/g, " ").trim();
+	return { type: last[1].trim(), rest };
+}
+function lineBadge(name) {
+	if (!name) return "";
+	const { type, rest } = splitLineName(name);
+	return `<span title="${esc(name)}">${type ? `<span class="linename">${esc(type)}</span> ` : ""}${rest ? `<span class="hint">${esc(rest)}</span> ` : ""}</span>`;
+}
+
 function renderRun() {
 	renderDeskBar();
 	const st = station();
@@ -373,8 +389,8 @@ function renderRun() {
 	if (!st) { lv.innerHTML = ""; ap.innerHTML = ""; hint.textContent = ""; return; }
 
 	// approach indication: a train holds an interlocked signal at danger
-	// the line (路線) of the train often names its type (普通・快速 …): shown first, then the train and its next stop
-	const train = (x) => `${x.line ? `<span class="linename">${esc(x.line)}</span> ` : ""}${esc(x.train)}${x.dest ? ` <span class="hint">次 ${esc(x.dest)}</span>` : ""}`;
+	// the line (路線) of the train names its type (普通・快速 …): shown first, then the train and its next stop
+	const train = (x) => `${lineBadge(x.line)}${esc(x.train)}${x.dest ? ` <span class="hint">次 ${esc(x.dest)}</span>` : ""}`;
 	const waiting = st.signals.filter(s => s.train && s.aspect === "red").map(s => `<div>${signalLabel(st, s.pos)}：${train(s)} 待機中</div>`);
 	const leaving = (st.departures || []).filter(d => d.train && d.waiting && !status.routes.some(r => key(r.start) === key(d.pos) && r.state !== "idle"))
 		.map(d => `<div>${signalLabel(st, d.pos)}：${train(d)} ${d.shunt ? "入換待ち" : "発車待ち"}</div>`);
