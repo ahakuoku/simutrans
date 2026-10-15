@@ -16,7 +16,7 @@
 | `PROTOCOL.md` | 盤との通信の仕様 |
 | `PORTING.md` | 新しい OTRP への移植手順 |
 | `hooks.patch` / `check_hooks.sh` | 移植用のパッチと確認スクリプト |
-| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
+| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
 | `tools/il_cli.py` | 手で試すための簡易コンソール盤 |
 | `tools/build_windows.sh` | Linux 上で Windows 64bit 版をクロスビルドするスクリプト（MinGW） |
 
@@ -143,7 +143,11 @@
   これはゲーム側の作りによるもので、盤からは変えられない。ピンクのてこを付けた信号がそうなっていないと、設定タブに注意が出る。
 - 番線でも留置線でも連結できる。OTRP は **次の停車駅が同じ** ときだけ連結し、**次の停車駅が分かれる駅を出るとき** に切り離す。
 - 連結した列車は 1 本の列車として出発の進路で出る。切り離した後は、それぞれ自分の出発の進路で出る
-  （同じ仮想出発信号から、先頭側の列車から順に）。
+  （同じ仮想出発信号から、先頭側の列車から順に。後ろに残った列車も、出発点の手前からそのまま出られる）。
+- 番線に止まっている子編成を、留置線などで待つ親編成へ連結しに行かせるときは、番線の出発点にピンクのてこを付ける。
+  進路がなければ子編成は番線から出ない。
+- ピンクの進路は、子編成が来る前に引いておいてもよい（セーブして開き直しても残る）。
+- 自動モードの駅では、盤は信号に手を出さないので、OTRP の通常の連結になる。
 
 ### セーブデータ
 

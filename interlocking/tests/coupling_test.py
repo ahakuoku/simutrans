@@ -9,7 +9,7 @@ Child B has the same schedule with "try coupling". The operator sets a route for
 calling-on lever of S1 up to the tile in front of A; on the platform OTRP itself extends the route
 to the coupling point and couples B to A.
 
-Usage: coupling_test.py --sim build/default/sim --workdir <dir> [--relay]
+Usage: coupling_test.py --sim build/default/sim --workdir <dir> [--relay] [--save | --auto]
 """
 import argparse, json, os, sys, time, urllib.request
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +32,8 @@ def run(args):
         check(p.cmd("st_new,T")["ok"], "station")
         sid = p.status()["stations"][0]["id"]
         check(p.cmd(f"sig_add,{sid},3,5,0")["ok"] and p.cmd(f"dep_add,{sid},12,9,0,S")["ok"], "S1 and the shunting signal of the siding stop")
+        if args.auto:
+            return run_auto(args, p, sid, ca, cb, conv, pos)
         check(p.cmd(f"st_mode,{sid},1")["ok"], "operator mode")
         if args.relay:
             check(p.cmd(f"st_cfg,{sid},1,0,5,3,2")["ok"], "relay interlocking")
@@ -59,18 +61,37 @@ def run(args):
         wait_until(lambda: pos(ca) == (12, 9, 0) and conv(ca)["state"] == 7, 120, "A loading (waiting for coupling)")
         check(True, f"A waits at {pos(ca)} (state {conv(ca)['state']})")
 
-        print("[2] child B with the calling-on lever up to A")
-        p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cb}")
-        wait_until(lambda: pos(cb) == (3, 5, 0), 60, "B at S1")
-        held = sorted((tuple(t["p"]), t["c"]) for t in tracks() if t.get("c"))
-        check(held == [((3, 5, 0), cb), ((12, 9, 0), ca)], f"B waits at S1 (guide signal), it did not pass it for the coupling: {held}")
         cmd = "set_path" if args.relay else "set_path_s"
-        turn(False)
-        r = p.cmd(f"set_path,{sid},{into(9)},B")
-        check(not r["ok"], f"the signal lever cannot lead up to A ({r.get('error')})")
-        turn(True)
-        r = p.cmd(f"{cmd},{sid},{into(9)},B")
-        check(r["ok"], f"calling-on lever: route S1 -> the siding stop where A waits for coupling ({r.get('error')})")
+        if args.save:
+            print("[2] the pink route is set before B comes; save and load, then B comes and couples")
+            wait_until(lambda: not any(r for r in p.status()["routes"] if r.get("temp")), 60, "route of A released")
+            turn(True)
+            r = p.cmd(f"{cmd},{sid},{into(9)},B")
+            check(r["ok"], f"calling-on lever: route S1 -> the siding stop where A waits ({r.get('error')})")
+            p.request("debug_save il_coupling")
+            time.sleep(2)
+            game.terminate()
+            game.wait(10)
+            time.sleep(1)
+            game = start_game(args, ["-load", "il_coupling"])
+            p = Panel(PORT)
+            wait_until(lambda: p.status()["stations"], 60, "loaded")
+            routes = p.status()["routes"]
+            check([(r["name"], r["state"], r.get("call_on")) for r in routes] == [("B", "set", True)], f"pink route restored after loading: {routes}")
+            check(conv(ca)["state"] == 7 and pos(ca) == (12, 9, 0), f"A still waits for coupling ({conv(ca)})")
+            p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cb}")
+        else:
+            print("[2] child B with the calling-on lever up to A")
+            p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cb}")
+            wait_until(lambda: pos(cb) == (3, 5, 0), 60, "B at S1")
+            held = sorted((tuple(t["p"]), t["c"]) for t in tracks() if t.get("c"))
+            check(held == [((3, 5, 0), cb), ((12, 9, 0), ca)], f"B waits at S1 (guide signal), it did not pass it for the coupling: {held}")
+            turn(False)
+            r = p.cmd(f"set_path,{sid},{into(9)},B")
+            check(not r["ok"], f"the signal lever cannot lead up to A ({r.get('error')})")
+            turn(True)
+            r = p.cmd(f"{cmd},{sid},{into(9)},B")
+            check(r["ok"], f"calling-on lever: route S1 -> the siding stop where A waits for coupling ({r.get('error')})")
         trace = []
         def coupled():
             a, b = conv(ca), conv(cb)
@@ -110,11 +131,33 @@ def run(args):
     print("COUPLING TEST DONE")
 
 
+def run_auto(args, p, sid, ca, cb, conv, pos):
+    """automatic mode: the panel leaves the signals to OTRP, the choose signal guides B to A as usual"""
+    parent = "0|0|0|2|0|12,9,0,0,0,1,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|"
+    child = "0|0|0|2|0|12,9,0,0,0,2,0,0,0,0,0,100,0,0|14,5,0,0,0,0,0,0,0,0,0,100,0,0|"
+    p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{ca},{parent}")
+    p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_CONVOI')} g,{cb},{child}")
+    print("[1] automatic mode: A runs into the siding stop by itself and waits for coupling")
+    time.sleep(1)
+    p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{ca}")
+    wait_until(lambda: pos(ca) == (12, 9, 0) and conv(ca)["state"] == 7, 120, "A waits in the siding stop")
+    print("[2] B couples without any route")
+    p.request(f"debug_tool {simple_tool_id('TOOL_CHANGE_DEPOT')} b,1,5,0,{cb}")
+    wait_until(lambda: conv(ca).get("coupled_to") or conv(cb).get("coupled_to"), 120, "coupled")
+    check(True, "B coupled to A")
+    check(not p.status()["routes"], "no route was set by the panel")
+    print("[3] the coupled train goes on to B by itself")
+    wait_until(lambda: pos(ca)[1] == 5 and pos(ca)[0] >= 13 and pos(cb)[0] >= 13, 120, "the train at B")
+    check(conv(ca).get("coupled_to") == cb or conv(cb).get("coupled_to") == ca, "still coupled at B")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--sim", required=True)
     ap.add_argument("--workdir", required=True)
     ap.add_argument("--relay", action="store_true")
+    ap.add_argument("--save", action="store_true", help="set the pink route, save and load, then let B come")
+    ap.add_argument("--auto", action="store_true", help="automatic mode (no routes)")
     try:
         run(ap.parse_args())
     except AssertionError as e:

@@ -556,4 +556,5 @@ OTRP 本体が更新されたときに、この機能を**新しい OTRP にす�
 - `panel_tandem_test.mjs`: 盤の「手前」の着点（シナリオ il-tandem）
 - `coupling_test.py`: 留置線での連結と、連結したままの出発（電子・継電。シナリオ il-coupling）
 - `coupling_platform_test.py`: 番線での連結、切り離し、それぞれの出発（電子・継電。シナリオ il-coupling）
+- `coupling_more_test.py`: 途中駅での切り離し、番線から連結しに行く子編成（電子・継電。シナリオ il-coupling）
 

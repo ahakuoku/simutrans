@@ -2592,6 +2592,9 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		buf.printf("{\"id\":%u,\"station\":%u,\"name\":", r->id, r->station);
 		append_json_string(buf, r->name.c_str());
 		buf.printf(",\"state\":\"%s\",\"temp\":%s,\"shunt\":%s", state_name(r->state), r->temp ? "true" : "false", r->shunt ? "true" : "false");
+		if(  r->call_on  ) {
+			buf.append(",\"call_on\":true");
+		}
 		if(  r->state == IL_SET  &&  !may_clear(r)  ) {
 			buf.printf(",\"waiting\":%u", max(seconds_left(r->ready_at), (uint32)1)); // points moving / emergency stop
 		}

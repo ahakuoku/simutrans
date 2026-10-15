@@ -8,7 +8,7 @@
 //  y=6          J-J[A2 A2 A2]-----J               J = junctions (4,5) (11,5) (5,6), curves (4,6) (11,6)
 //  y=7            |                                siding (5,7)-(5,8): dead end at (5,8)
 //  y=8            .                      S        S = stop used as a siding (12,8)-(12,9), off the junction (12,5)
-//  y=12  a through track (2..12,12) with a stop at (6..8,12): virtual signals at both ends
+//  y=12  D2 S2 [C C] . [P P P] . [Q] . . [R R]   D2 = depot (1,12), S2 = choose signal (2,12), stops C P Q R (R a terminus)
 //
 //  Station A has two platforms (y=5 and y=6), station B is a terminus at the east end.
 //  A separate line crosses on a bridge at x=10 (not connected). A crossover links both tracks at x=9.
@@ -48,6 +48,9 @@ function build_layout()
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(12, 5, 0), coord3d(12, 9, 0), rail, true), null)
 	// a separate through track with a stop in the middle (a siding that can be left at both ends)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(2, 12, 0), coord3d(12, 12, 0), rail, true), null)
+	// (coupling) the y=12 line gets a depot and more stops: D2 (1,12), S2 (2,12), C (3..4,12), P (6..8,12), Q (10,12), R (13..14,12)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(1, 12, 0), coord3d(2, 12, 0), rail, true), null)
+	ASSERT_EQUAL(command_x.build_way(pl, coord3d(12, 12, 0), coord3d(14, 12, 0), rail, true), null)
 	// a short crossover between the two tracks east of the platforms (one lever for both points)
 	ASSERT_EQUAL(command_x.build_way(pl, coord3d(9, 5, 0), coord3d(9, 6, 0), rail, true), null)
 
@@ -64,21 +67,26 @@ function build_layout()
 	foreach (x in [6, 7, 8]) {
 		ASSERT_EQUAL(command_x.build_station(pl, coord3d(x, 12, 0), station_desc), null)
 	}
+	foreach (x in [3, 4, 10, 13, 14]) {
+		ASSERT_EQUAL(command_x.build_station(pl, coord3d(x, 12, 0), station_desc), null)
+	}
 	ASSERT_EQUAL(command_x.build_station(pl, coord3d(13, 5, 0), station_desc), null)
 	ASSERT_EQUAL(command_x.build_station(pl, coord3d(14, 5, 0), station_desc), null)
 
 	ASSERT_EQUAL(command_x.build_depot(pl, coord3d(1, 5, 0), get_depot_by_wt(wt_rail)), null)
+	ASSERT_EQUAL(command_x.build_depot(pl, coord3d(1, 12, 0), get_depot_by_wt(wt_rail)), null)
 
 	// a choose signal for eastbound trains at (3,5); the test turns on its guide (coupling) setting
 	local sig = sign_desc_x.get_available_signs(wt_rail).filter(@(i, s) (s.is_choose_sign() && s.get_name() == "ChooseSignals"))[0]
-	local tile = tile_x(3, 5, 0)
-	for (local i = 0; i < 4; i++) {
-		ASSERT_EQUAL(command_x.build_sign_at(pl, tile, sig), null)
-		if (tile.get_way(wt_rail).get_dirs_masked() == dir.east) {
-			break
+	foreach (tile in [tile_x(3, 5, 0), tile_x(2, 12, 0)]) {
+		for (local i = 0; i < 4; i++) {
+			ASSERT_EQUAL(command_x.build_sign_at(pl, tile, sig), null)
+			if (tile.get_way(wt_rail).get_dirs_masked() == dir.east) {
+				break
+			}
 		}
+		ASSERT_EQUAL(tile.get_way(wt_rail).get_dirs_masked(), dir.east)
 	}
-	ASSERT_EQUAL(tile.get_way(wt_rail).get_dirs_masked(), dir.east)
 
 	// one train B <-> A
 	local depot = depot_x(1, 5, 0)
@@ -92,6 +100,10 @@ function build_layout()
 	for (local i = 0; i < 7; i++) {
 		depot.append_vehicle(pl, long_cnv, car)
 	}
+	// two trains in the depot of the y=12 line
+	local depot2 = depot_x(1, 12, 0)
+	ASSERT_TRUE(depot2.append_vehicle(pl, convoy_x(0), loco))
+	ASSERT_TRUE(depot2.append_vehicle(pl, convoy_x(0), loco))
 	// an unconnected line on a bridge across the station throat (x=10), to test the height filter of the panel
 	local bridge = bridge_desc_x.get_available_bridges(wt_rail)[0]
 	local res = command_x.build_bridge(pl, coord3d(10, 8, 0), coord3d(10, 3, 0), bridge)

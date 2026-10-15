@@ -147,7 +147,7 @@
 駅の `kind`（`electronic` / `relay`）、`rot`、`t_approach`・`t_shunt`・`t_throw`（秒）、`all_stop`、`operators`（会社番号）、
 `siding_halts`（留置線として扱う駅のタイル）、`pairs`（まとめた信号てこ `[[左],[右]]`）、`slevers`（ひねってある信号てこ: `pos`、`side`、`used`）、`points`（継電: ポイントの向き `pair` と転換の残り秒数 `moving`）。
 進路の `waiting`（転換中・一斉停止で信号が進行にならない）、`release_in`（時素の残り秒数）。
-駅の `labels` は盤で付けた名前（`pos`、`name`）。駅の `levers` は固定されたポイント（`pos`、`value`、`pairs`）。進路の `temp` は「その場で引いた進路」（解除されると消える）。
+駅の `labels` は盤で付けた名前（`pos`、`name`）。駅の `levers` は固定されたポイント（`pos`、`value`、`pairs`）。進路の `temp` は「その場で引いた進路」（解除されると消える）。`call_on:true` はピンクのてこ（誘導）で引いた進路（連結相手が待つ線路に入れる）。
 駅の `departures` は仮想出発信号: `pos`（出発点＝進路の始点）、`tiles`（番線のタイル）、`train`（番線にいる列車）、`waiting`（発車待ちか）。
 ホームのない線路のもの（仮想入換信号）は `"shunt":true` が付く。
 
