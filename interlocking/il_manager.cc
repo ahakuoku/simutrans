@@ -383,6 +383,17 @@ const char *interlocking_manager_t::siding_track(koord3d pos, vector_tpl<koord3d
 }
 
 
+/// the tile is held by a train that waits for a train to couple with it (OTRP coupling)
+static bool held_for_coupling(const schiene_t *sch)
+{
+	if(  sch == NULL  ||  !sch->is_reserved()  ) {
+		return false;
+	}
+	const convoihandle_t c = sch->get_reserved_convoi();
+	return c.is_bound()  &&  c->is_loading()  &&  c->get_schedule()  &&  c->get_schedule()->get_current_entry().is_wait_for_coupling();
+}
+
+
 bool interlocking_manager_t::train_stops_on(const convoi_t *cnv, const il_departure_t *dep) const
 {
 	// the train stops on this platform (its destination is a tile of it, or of the same stop)
@@ -418,6 +429,19 @@ bool interlocking_manager_t::ends_behind_train(const il_route_t *r) const
 	}
 	il_departure_t *dep = NULL;
 	return find_departure_track(r->tiles[n - 1], &dep)  &&  dep->tiles.is_contained(to->get_pos());
+}
+
+
+bool interlocking_manager_t::ends_at_coupling(const il_route_t *r) const
+{
+	const uint32 n = r->tiles.get_count();
+	grund_t *gr = n >= 2 ? world()->lookup(r->tiles[n - 1]) : NULL;
+	grund_t *to = NULL;
+	const ribi_t::ribi dir = n >= 2 ? ribi_type(r->tiles[n - 2], r->tiles[n - 1]) : (ribi_t::ribi)ribi_t::none;
+	if(  gr == NULL  ||  !ribi_t::is_single(dir)  ||  !gr->get_neighbour(to, track_wt, dir)  ) {
+		return false;
+	}
+	return held_for_coupling((const schiene_t *)to->get_weg(track_wt));
 }
 
 
@@ -1352,7 +1376,7 @@ const char *interlocking_manager_t::cmd_set(il_route_t *r)
 		if(  sch == NULL  ) {
 			return "track of the route is missing";
 		}
-		if(  sch->is_reserved()  ) {
+		if(  sch->is_reserved()  &&  !(r->call_on  &&  held_for_coupling(sch))  ) {
 			return "track is occupied";
 		}
 	}
@@ -1625,6 +1649,7 @@ const char *interlocking_manager_t::cmd_set_path(il_station_t *st, const char *p
 	il_route_t *r = new_route(st, tiles, name, true);
 	// white / green: shunting route; pink (calling-on, 誘導): a train route
 	r->shunt = extra  &&  col != 'P';
+	r->call_on = extra  &&  col == 'P';
 	const char *error = NULL;
 	if(  ends_behind_train(r)  &&  !(extra  &&  (col == 'G'  ||  col == 'P'))  ) {
 		// up to a train standing on the track: only with a shunting indicator (入換標識) or a calling-on lever (誘導)
@@ -1697,7 +1722,11 @@ bool interlocking_manager_t::build_train_route(rail_vehicle_t *v, uint16 next_bl
 			// another train stands further in (a siding with trains one behind the other): stop behind it
 			const schiene_t *sch = get_rail(to->get_pos());
 			if(  sch  &&  sch->is_reserved()  &&  sch->get_reserved_convoi() != cnv->self  ) {
-				break;
+				// ... unless we are going to couple with it: OTRP drives us up to it and couples
+				const convoihandle_t other = sch->get_reserved_convoi();
+				if(  !other.is_bound()  ||  !cnv->can_start_coupling(other.get_rep())  ) {
+					break;
+				}
 			}
 			out.append(to->get_pos());
 			gr = to;
@@ -1791,7 +1820,7 @@ bool interlocking_manager_t::on_signal(rail_vehicle_t *v, uint16 next_block, sin
 bool interlocking_manager_t::admit_train(rail_vehicle_t *v, uint16 start, il_route_t *r, sint32 &restart_speed, uint16 reserve_from)
 {
 	convoi_t *cnv = v->get_convoi();
-	if(  r->state == IL_SET  &&  ends_behind_train(r)  ) {
+	if(  r->state == IL_SET  &&  ends_behind_train(r)  &&  !ends_at_coupling(r)  ) {
 		// behind a standing train the whole train must fit on the track, the tail must not foul the points
 		const uint32 need = (cnv->get_entire_convoy_length() + CARUNITS_PER_TILE - 1) / CARUNITS_PER_TILE;
 		if(  room_at_end(r) < need  ) {
@@ -1882,6 +1911,16 @@ bool interlocking_manager_t::admit_train(rail_vehicle_t *v, uint16 start, il_rou
 			through->convoy = cnv->self;
 			set_route_state(through, IL_OCCUPIED);
 		}
+		return true;
+	}
+	// the track ahead is held by a train waiting for us to couple: as OTRP does at a signal, drive up to it
+	uint16 next_coupling = route_t::INVALID_INDEX;
+	uint8 coupling_steps = 0;
+	if(  r->state == IL_SET  &&  v->can_couple(cnv->get_route(), reserve_from, next_coupling, coupling_steps)  &&  next_coupling != route_t::INVALID_INDEX  ) {
+		cnv->set_next_coupling(next_coupling, coupling_steps);
+		cnv->set_next_stop_index(min(next_crossing, min(next_signal, next_coupling)));
+		r->convoy = cnv->self;
+		set_route_state(r, IL_OCCUPIED);
 		return true;
 	}
 	restart_speed = 0;
@@ -2169,7 +2208,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 10
+#define IL_BLOCK_VERSION 11
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -2335,6 +2374,9 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 		b.rdwr_long(r->ready_at);
 		b.rdwr_long(r->release_at);
 		b.rdwr_bool(r->shunt);
+		if(  version >= 11  ) {
+			b.rdwr_bool(r->call_on);
+		}
 		future_fields(b);
 		b.end_section();
 		if(  b.loading  ) {

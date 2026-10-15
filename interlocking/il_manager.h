@@ -50,8 +50,10 @@ struct il_route_t {
 	uint32 release_at;
 	/// set with the shunting lever of its start (入換てこ)
 	bool shunt;
+	/// set with a calling-on lever (誘導): may lead into a track where a train waits for coupling
+	bool call_on;
 
-	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false), ready_at(0), release_at(0), shunt(false) {}
+	il_route_t() : id(0), station(0), state(IL_IDLE), temp(false), ready_at(0), release_at(0), shunt(false), call_on(false) {}
 };
 
 /**
@@ -248,6 +250,8 @@ private:
 	bool train_stops_on(const convoi_t *cnv, const il_departure_t *dep) const;
 	/// the route ends right behind a train standing on the track (trains one behind the other)
 	bool ends_behind_train(const il_route_t *r) const;
+	/// the route leads up to a train that waits for coupling (no length check: the trains are coupled)
+	bool ends_at_coupling(const il_route_t *r) const;
 	/// number of tiles at the end of the route on the same platform / siding track
 	uint32 room_at_end(const il_route_t *r) const;
 	/// checks a tile list "x:y:z;..." from a start point of the station along the track

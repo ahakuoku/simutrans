@@ -315,8 +315,9 @@ static void handle_line(client_t &c, char *line)
 		bool first = true;
 		FOR(vector_tpl<convoihandle_t>, const cnv, world()->convoys()) {
 			const koord3d pos = cnv->get_pos();
-			answer.printf("%s{\"id\":%u,\"pos\":[%d,%d,%d],\"state\":%d,\"speed\":%d,\"stop\":%d}", first ? "" : ",", cnv.get_id(), pos.x, pos.y, pos.z, cnv->get_state(), cnv->get_akt_speed(),
-				cnv->get_schedule() ? (int)cnv->get_schedule()->get_current_stop() : -1);
+			answer.printf("%s{\"id\":%u,\"pos\":[%d,%d,%d],\"state\":%d,\"speed\":%d,\"stop\":%d,\"coupled_to\":%u}", first ? "" : ",", cnv.get_id(), pos.x, pos.y, pos.z, cnv->get_state(), cnv->get_akt_speed(),
+				cnv->get_schedule() ? (int)cnv->get_schedule()->get_current_stop() : -1,
+				cnv->get_coupling_convoi().is_bound() ? (unsigned)cnv->get_coupling_convoi().get_id() : 0u);
 			first = false;
 		}
 		answer.append("]}");
