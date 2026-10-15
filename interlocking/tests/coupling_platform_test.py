@@ -120,9 +120,9 @@ def run(args):
         r = set_route("13,5,0", to_platform, "A-out")
         check(r["ok"], f"departure route B -> platform 1 ({r.get('error')})")
         try:
-            wait_until(lambda: pos(ca)[1] == 5 and 6 <= pos(ca)[0] <= 8 and conv(ca)["state"] == 7, 120, "A on platform 1")
+            wait_until(lambda: pos(ca)[1] == 5 and 6 <= pos(ca)[0] <= 8 and conv(ca)["speed"] == 0, 120, "A on platform 1")
         except AssertionError:
-            print("    A:", conv(ca), "routes:", p.status()["routes"], "events:", p.events[-6:] if hasattr(p, "events") else "")
+            print("    A:", conv(ca), "routes:", p.status()["routes"])
             raise
         check(True, f"A arrived on platform 1 ({pos(ca)})")
     finally:
