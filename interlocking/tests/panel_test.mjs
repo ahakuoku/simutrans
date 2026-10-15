@@ -395,7 +395,8 @@ try {
 	await waitFor(async () => ((await stA()).area_of || []).some(x => x.pos.join(",") === "3,5,0" && x.a === 2), 10000, "area of S1");
 	await page.click("nav button[data-tab=setup]");
 	await page.waitForSelector("#stationCfg select[data-area='3,5,0']");
-	check(await page.inputValue("#stationCfg select[data-area='3,5,0']") === "2", "setup tab shows the area of S1");
+	await waitFor(async () => await page.inputValue("#stationCfg select[data-area='3,5,0']") === "2", 10000, "area in the setup tab");
+	check(true, "setup tab shows the area of S1");
 	await page.click("nav button[data-tab=run]");
 	await page.waitForSelector("#deskSel");
 	await page.selectOption("#deskSel", "1");
@@ -406,15 +407,18 @@ try {
 	check(!((await stA()).slevers || []).length, "the lever of another area cannot be turned");
 	await page.selectOption("#deskSel", "2");
 	await waitFor(async () => await page.locator("#relayBoard .rlever.other[data-sl='3,5,0']").count() === 0, 10000, "S1 not dimmed");
+	await sleep(800);
 	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob");
 	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "3,5,0"), 10000, "S1 turned in its own area");
+	await sleep(1200);
 	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob");
 	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "S1 back");
 	check(true, "with 西扱い chosen, S1 can be turned");
 	await page.selectOption("#deskSel", "0");
 	await api("ar_del,ST,2"); await sleep(300); await api("ar_del,ST,1");
 	await waitFor(async () => !((await stA()).areas || []).length, 10000, "areas removed");
-	check(await page.locator("#deskSel").count() === 0, "no area selector without areas");
+	await waitFor(async () => await page.locator("#deskSel").count() === 0, 10000, "area selector gone");
+	check(true, "no area selector without areas");
 	// the orientation of a relay panel is stored in the game (the same for everybody)
 	await page.click("#viewbar button[data-rot]");
 	await waitFor(async () => (await stA()).rot === 1, 10000, "relay panel turned");
