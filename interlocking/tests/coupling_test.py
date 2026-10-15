@@ -149,6 +149,7 @@ def run_auto(args, p, sid, ca, cb, conv, pos):
     print("[3] the coupled train goes on to B by itself")
     wait_until(lambda: pos(ca)[1] == 5 and pos(ca)[0] >= 13 and pos(cb)[0] >= 13, 120, "the train at B")
     check(conv(ca).get("coupled_to") == cb or conv(cb).get("coupled_to") == ca, "still coupled at B")
+    print("COUPLING TEST DONE")
 
 
 if __name__ == "__main__":

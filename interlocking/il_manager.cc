@@ -46,6 +46,10 @@
 // maximum number of pending events for the external panel
 #define IL_MAX_EVENTS 256
 
+// operating areas (扱い区分) of a station, and start points / points with an area
+#define IL_MAX_AREAS 9
+#define IL_MAX_AREA_ENTRIES 512
+
 
 static interlocking_manager_t *il_instance = NULL;
 
@@ -103,6 +107,17 @@ uint8 il_station_t::shunt_lever(koord3d pos) const
 	for(  uint32 i = 0;  i < shunt_pos.get_count();  i++  ) {
 		if(  shunt_pos[i] == pos  ) {
 			return shunt_col[i];
+		}
+	}
+	return 0;
+}
+
+
+uint8 il_station_t::area_of(koord3d pos) const
+{
+	for(  uint32 i = 0;  i < area_pos.get_count();  i++  ) {
+		if(  area_pos[i] == pos  ) {
+			return area_val[i];
 		}
 	}
 	return 0;
@@ -608,9 +623,9 @@ const char *interlocking_manager_t::cmd_signal_lever(il_station_t *st, koord3d p
 				return "turn the lever back first";
 			}
 		}
-		// only one lever may wait for its destination button: the button belongs to that lever
+		// only one lever (of an operating area) may wait for its destination button: the button belongs to that lever
 		FOR(vector_tpl<il_slever_t *>, o, st->slevers) {
-			if(  !o->used  ) {
+			if(  !o->used  &&  st->area_of(o->pos) == st->area_of(pos)  ) {
 				return "another lever is waiting for its destination";
 			}
 		}
@@ -1129,6 +1144,82 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			if(  col == 'W'  ||  col == 'G'  ||  col == 'P'  ) {
 				st->shunt_pos.append(pos);
 				st->shunt_col.append((uint8)col);
+			}
+		}
+	}
+	else if(  strcmp(cmd, "ar_name") == 0  &&  n >= 3  ) {
+		// operating area (扱い区分): name area <n> (1 ..), n = count + 1 adds one
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const sint32 a = atoi(f[2]);
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  a < 1  ||  a > (sint32)st->area_names.get_count() + 1  ||  a > IL_MAX_AREAS  ) {
+			error = "invalid area";
+		}
+		else if(  a == (sint32)st->area_names.get_count() + 1  ) {
+			st->area_names.append(plainstring(n >= 4 ? f[3] : ""));
+		}
+		else {
+			st->area_names[(uint32)a - 1] = n >= 4 ? f[3] : "";
+		}
+	}
+	else if(  strcmp(cmd, "ar_del") == 0  &&  n >= 3  ) {
+		// removes an operating area: its levers become common, the areas after it move up
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const sint32 a = atoi(f[2]);
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  a < 1  ||  a > (sint32)st->area_names.get_count()  ) {
+			error = "invalid area";
+		}
+		else {
+			st->area_names.remove_at((uint32)a - 1);
+			for(  uint32 i = st->area_pos.get_count();  i-- > 0;  ) {
+				if(  st->area_val[i] == a  ) {
+					st->area_pos.remove_at(i);
+					st->area_val.remove_at(i);
+				}
+				else if(  st->area_val[i] > a  ) {
+					st->area_val[i]--;
+				}
+			}
+		}
+	}
+	else if(  strcmp(cmd, "ar_pos") == 0  &&  n >= 6  ) {
+		// the operating area of a start point or a point (0 = common)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		const sint32 a = atoi(f[5]);
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  a < 0  ||  a > (sint32)st->area_names.get_count()  ) {
+			error = "invalid area";
+		}
+		else if(  a > 0  &&  st->area_of(pos) == 0  &&  st->area_pos.get_count() >= IL_MAX_AREA_ENTRIES  ) {
+			error = "too many entries";
+		}
+		else {
+			for(  uint32 i = st->area_pos.get_count();  i-- > 0;  ) {
+				if(  st->area_pos[i] == pos  ) {
+					st->area_pos.remove_at(i);
+					st->area_val.remove_at(i);
+				}
+			}
+			if(  a > 0  ) {
+				st->area_pos.append(pos);
+				st->area_val.append((uint8)a);
 			}
 		}
 	}
@@ -2208,7 +2299,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 11
+#define IL_BLOCK_VERSION 12
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -2353,6 +2444,19 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 		b.rdwr_byte_vector(st->side_val);
 		b.rdwr_pos_vector(st->shunt_pos);
 		b.rdwr_byte_vector(st->shunt_col);
+		if(  version >= 12  ) {
+			uint32 na = st->area_names.get_count();
+			b.rdwr_long(na);
+			for(  uint32 j = 0;  j < na  &&  j < IL_MAX_AREAS  &&  !b.broken;  j++  ) {
+				plainstring name = b.loading ? plainstring() : st->area_names[j];
+				b.rdwr_str(name);
+				if(  b.loading  ) {
+					st->area_names.append(name);
+				}
+			}
+			b.rdwr_pos_vector(st->area_pos);
+			b.rdwr_byte_vector(st->area_val);
+		}
 		future_fields(b);
 		b.end_section();
 		if(  b.loading  ) {
@@ -2436,6 +2540,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		for(  uint32 i = 0;  i < st->shunt_pos.get_count();  i++  ) {
 			st->shunt_pos[i].rotate90(y_size);
 		}
+		for(  uint32 i = 0;  i < st->area_pos.get_count();  i++  ) {
+			st->area_pos[i].rotate90(y_size);
+		}
 		FOR(vector_tpl<il_point_t *>, pt, st->points) {
 			pt->pos.rotate90(y_size);
 			pt->a = ribi_t::rotate90(pt->a);
@@ -2502,6 +2609,19 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
 			append_json_pos(buf, st->shunt_pos[i]);
 			buf.printf(",\"color\":\"%c\"}", st->shunt_col[i]);
+		}
+		buf.append("],\"areas\":[");
+		for(  uint32 i = 0;  i < st->area_names.get_count();  i++  ) {
+			if(  i  ) {
+				buf.append(",");
+			}
+			append_json_string(buf, st->area_names[i].c_str());
+		}
+		buf.append("],\"area_of\":[");
+		for(  uint32 i = 0;  i < st->area_pos.get_count()  &&  i < st->area_val.get_count();  i++  ) {
+			buf.append(i ? ",{\"pos\":" : "{\"pos\":");
+			append_json_pos(buf, st->area_pos[i]);
+			buf.printf(",\"a\":%u}", st->area_val[i]);
 		}
 		buf.append("],\"slevers\":[");
 		for(  uint32 i = 0;  i < st->slevers.get_count();  i++  ) {

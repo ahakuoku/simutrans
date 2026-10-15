@@ -108,11 +108,85 @@ function leverOfPos(st, pos) {
 const sleverOf = (st, pos, sh = false) => (st.slevers || []).find(l => key(l.pos) === key(pos) && !!l.shunt === !!sh);
 const leverKey = (pos, sh) => key(pos) + (sh ? "|S" : "");
 
+// operating areas (扱い区分): the area of a start point or point (0 = common), and the area this browser operates
+const deskOf = (st, pos) => ((st.area_of || []).find(x => key(x.pos) === key(pos)) || {}).a || 0;
+function myDesk(st) {
+	const d = Number(localStore("desk." + st.id) || 0);
+	return d > 0 && d <= (st.areas || []).length ? d : 0;
+}
+function setMyDesk(st, d) { localStore("desk." + st.id, String(d)); }
+const deskName = (st, d) => d ? ((st.areas || [])[d - 1] || `区分${d}`) : "共通";
+// this browser may operate the lever at pos (its own area, or a common lever, or no area chosen)
+function mayHandle(st, pos) {
+	const mine = myDesk(st), d = deskOf(st, pos);
+	return !mine || !d || d === mine;
+}
+function refuseOther(st, pos) {
+	if (mayHandle(st, pos)) return false;
+	toast(`このてこは「${deskName(st, deskOf(st, pos))}」の担当です（担当：${deskName(st, myDesk(st))}）`, true);
+	return true;
+}
+// the area of a point lever: the area of its first point
+const pointDesk = (st, li) => deskOf(st, layout.points[layout.levers[li].pts[0]].t.p);
+
+// selector of the operating area (運転タブ), only when the station has areas
+function renderDeskBar() {
+	const box = document.getElementById("deskBar");
+	const st = station();
+	const areas = st ? st.areas || [] : [];
+	const html = !areas.length ? "" : `<div class="row"><label>担当 <select id="deskSel">
+		<option value="0">すべて（区分なし）</option>${areas.map((n, i) => `<option value="${i + 1}" ${myDesk(st) === i + 1 ? "selected" : ""}>${esc(deskName(st, i + 1))}</option>`).join("")}</select></label>
+		<span class="hint">ほかの区分のてこは薄く表示され、扱えません（このブラウザだけの設定）</span></div>`;
+	if (box.dataset.html === html) return;
+	box.innerHTML = box.dataset.html = html;
+	box.hidden = !html;
+	const sel = box.querySelector("#deskSel");
+	if (sel) sel.addEventListener("change", () => { setMyDesk(st, Number(sel.value)); relaySel = null; render(); });
+}
+
+// setup of the operating areas (設定タブ)
+function areaCfg(st) {
+	const areas = st.areas || [];
+	const opts = (d) => `<option value="0" ${d === 0 ? "selected" : ""}>共通</option>` + areas.map((n, i) => `<option value="${i + 1}" ${d === i + 1 ? "selected" : ""}>${esc(deskName(st, i + 1))}</option>`).join("");
+	const sigs = signalLevers(st).filter(l => !l.extra).map(l => {
+		const pos = l.pair ? [l.left.pos, l.right.pos] : [l.pos];
+		const name = l.pair ? `${signalLabel(st, l.left.pos)}／${signalLabel(st, l.right.pos)}` : signalLabel(st, l.pos);
+		return `<label>${l.no} ${esc(name)}<select data-area="${pos.map(key).join(";")}">${opts(deskOf(st, pos[0]))}</select></label>`;
+	});
+	const pts = (layout && layout.levers || []).map((lv, li) => {
+		const p = layout.points[lv.pts[0]].t.p;
+		return `<label>${esc(leverName(st, li))}<select data-area="${lv.pts.map(i => key(layout.points[i].t.p)).join(";")}">${opts(deskOf(st, p))}</select></label>`;
+	});
+	return `<div class="hint" style="margin-top:6px"><b>扱い区分</b>：大きな駅を何人かで扱うとき、てこを区分（例：東扱い・西扱い）に分けます。
+		運転タブで各自が自分の区分を選ぶと、ほかの区分のてこは扱えなくなります。着点待ちのてこは区分ごとに 1 本です。「共通」のてこは誰でも扱えます。</div>
+		<div class="row">${areas.map((n, i) => `<span class="areaname"><input data-areaname="${i + 1}" value="${esc(n)}" placeholder="区分${i + 1}" size="8"><button data-areadel="${i + 1}" title="この区分を消す（てこは共通に戻る）">✕</button></span>`).join("")}
+		${areas.length < 9 ? `<button id="areaAdd">区分を追加</button>` : ""}</div>
+		${areas.length ? `<div class="sidegrid">${sigs.concat(pts).join("")}</div>` : ""}`;
+}
+function bindAreaCfg(box, st) {
+	const clean = (s) => s.replace(/[,;|\n\r]/g, " ").trim().slice(0, 40);
+	const add = box.querySelector("#areaAdd");
+	if (add) add.addEventListener("click", () => {
+		const n = (st.areas || []).length + 1;
+		command(`ar_name,${st.id},${n},区分${n}`, `扱い区分を追加（区分${n}）`);
+	});
+	for (const i of box.querySelectorAll("[data-areaname]")) i.addEventListener("change", () =>
+		command(`ar_name,${st.id},${i.dataset.areaname},${clean(i.value)}`, "扱い区分の名前"));
+	for (const b of box.querySelectorAll("[data-areadel]")) b.addEventListener("click", () => {
+		if (!confirm(`「${deskName(st, Number(b.dataset.areadel))}」を消しますか？この区分のてこは共通に戻ります。`)) return;
+		command(`ar_del,${st.id},${b.dataset.areadel}`, "扱い区分を削除");
+	});
+	for (const c of box.querySelectorAll("select[data-area]")) c.addEventListener("change", () => {
+		for (const k of c.dataset.area.split(";")) command(`ar_pos,${st.id},${k},${c.value}`, "てこの扱い区分");
+	});
+}
+
 // start of the next route: the lever this browser turned, else any turned lever without a route yet
+// (of this browser's operating area)
 function relayStart() {
 	const st = station();
 	if (!st) return null;
-	const free = (st.slevers || []).filter(l => !l.used);
+	const free = (st.slevers || []).filter(l => !l.used && mayHandle(st, l.pos));
 	const sel = free.find(l => leverKey(l.pos, l.shunt) === relaySel) || free[free.length - 1];
 	if (!sel) return null;
 	return { pos: sel.pos, dep: isDepartureAnchor(st, sel.pos), shunt: !!sel.shunt, color: sel.shunt ? shuntColor(st, sel.pos) : null };
@@ -121,6 +195,7 @@ function relayStart() {
 function turnSignalLever(pos, side, sh = false) {
 	const st = station();
 	if (!st.manual) { toast("CTC集中（自動）です。駅扱切換てこを「駅扱」にしてください", true); return; }
+	if (refuseOther(st, pos)) return;
 	const lv = sleverOf(st, pos, sh);
 	const want = side || (lv ? "N" : leverSide(st, pos));
 	if (want !== "N" && want !== leverSide(st, pos)) { toast("このてこは反対側には開通しません", true); return; }
@@ -250,7 +325,8 @@ function renderRelayBoard() {
 		const tip = l.pair ? `左＝${signalLabel(st, l.left.pos)}、右＝${signalLabel(st, l.right.pos)}（◀ ▶ で倒す）` : `${signalLabel(st, l.pos)}${sh ? "の" + kind + "てこ" + (l.color === "G" || l.color === "P" ? "（在線の手前まで進路が取れる）" : "") : ""}：${sides.L ? "左" : "右"}にひねって着点ボタンを押す（つまみを押すと ひねる／戻す）`;
 		const color = sh ? extraColor(l.color) : l.shunt ? LEVER_WHITE : LEVER_RED;
 		const rs = relayStart();
-		html += `<div class="rlever ${rs && keys.includes(leverKey(rs.pos, rs.shunt)) ? "sel" : ""} ${keys.includes(hoverLever) ? "hl" : ""}" data-sl="${leverKey(l.pos, sh)}" data-keys="${keys.join(";")}" data-shunt="${sh ? 1 : ""}"
+		const other = !Object.values(sides).some(p => mayHandle(st, p));
+		html += `<div class="rlever ${rs && keys.includes(leverKey(rs.pos, rs.shunt)) ? "sel" : ""} ${keys.includes(hoverLever) ? "hl" : ""} ${other ? "other" : ""}" data-sl="${leverKey(l.pos, sh)}" data-keys="${keys.join(";")}" data-shunt="${sh ? 1 : ""}"
 			data-left="${sides.L ? key(sides.L) : ""}" data-right="${sides.R ? key(sides.R) : ""}" title="${esc(tip)}">
 			<div class="lamps">${lamp(turned === "L", "#f4f1e6")}${lamp(clear, "var(--green)")}${lamp(!clear, "var(--red)", "small")}${lamp(turned === "R", "#f4f1e6")}</div>
 			${knob(color, turned === "L" ? -40 : turned === "R" ? 40 : 0, "", l.no)}
@@ -265,7 +341,8 @@ function renderRelayBoard() {
 		const m = ls.manual === "N" ? "N" : ls.manual === "R" ? "R" : "C";
 		const angle = m === "N" ? -45 : m === "R" ? 45 : 0;
 		const blink = lp.moving > 0 ? "blink" : "";
-		html += `<div class="rlever point ${ls.locked ? "locked" : ""}" data-pl="${li}" title="${esc(leverName(st, li))}：◀ N（定位）・つまみ C（総括）・▶ R（反位）">
+		const pother = !mayHandle(st, pt.t.p);
+		html += `<div class="rlever point ${ls.locked ? "locked" : ""} ${pother ? "other" : ""}" data-pl="${li}" title="${esc(leverName(st, li))}：◀ N（定位）・つまみ C（総括）・▶ R（反位）">
 			<div class="lamps">${lamp(lp.pos === "N", "var(--green)", blink)}<span class="lt">N</span><span class="lt">R</span>${lamp(lp.pos === "R", "var(--green)", blink)}</div>
 			${knob(LEVER_BLACK, m === "N" ? -40 : m === "R" ? 40 : 0, "N　　C　　R", 21 + li)}
 			${sideBtns("◀N", "R▶", false, false, m === "N", m === "R")}
@@ -394,6 +471,7 @@ function renderStationCfg() {
 				<option value="N" ${c === "N" ? "selected" : ""}>なし</option><option value="W" ${c === "W" ? "selected" : ""}>白（入換信号機）</option><option value="G" ${c === "G" ? "selected" : ""}>緑（入換標識）</option><option value="P" ${c === "P" ? "selected" : ""}>ピンク（誘導信号）</option></select></label>`;
 		}).join("")}</div>
 		${couplingWarnings(st)}
+		${areaCfg(st)}
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;
@@ -405,6 +483,7 @@ function renderStationCfg() {
 		if (kind === 1 && !confirm("継電連動（上級者向け）に切り替えますか？\n信号てこをひねってから着点ボタンを押す扱いになり、転換時間・時素があります。ショートカットは使えなくなります。")) return;
 		command(cfgCommand(st, { kind }), kind ? "継電連動に切替" : "電子連動に切替");
 	});
+	bindAreaCfg(box, st);
 	for (const c of box.querySelectorAll("[data-lvshunt]")) c.addEventListener("change", () =>
 		command(`lv_shunt,${st.id},${c.dataset.lvshunt},${c.value}`, "入換てこ"));
 	for (const c of box.querySelectorAll("[data-lvside]")) c.addEventListener("change", () =>

@@ -389,6 +389,32 @@ try {
 	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "lv_shunt," + station().id + ",3,5,0,N" }));
 	await waitFor(async () => !((await stA()).shunt_levers || []).length, 10000, "shunting lever removed");
 	check(true, "shunting lever turned and back, removed");
+	// operating areas (扱い区分): S1 belongs to 西扱い; this browser takes 東扱い, so S1 is dimmed and cannot be turned
+	const api = (c) => page.evaluate((c) => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: c.replace("ST", station().id) }), c);
+	await api("ar_name,ST,1,東扱い"); await sleep(300); await api("ar_name,ST,2,西扱い"); await sleep(300); await api("ar_pos,ST,3,5,0,2");
+	await waitFor(async () => ((await stA()).area_of || []).some(x => x.pos.join(",") === "3,5,0" && x.a === 2), 10000, "area of S1");
+	await page.click("nav button[data-tab=setup]");
+	await page.waitForSelector("#stationCfg select[data-area='3,5,0']");
+	check(await page.inputValue("#stationCfg select[data-area='3,5,0']") === "2", "setup tab shows the area of S1");
+	await page.click("nav button[data-tab=run]");
+	await page.waitForSelector("#deskSel");
+	await page.selectOption("#deskSel", "1");
+	await waitFor(async () => await page.locator("#relayBoard .rlever.other[data-sl='3,5,0']").count() === 1, 10000, "S1 dimmed");
+	check(true, "with 東扱い chosen, the lever of S1 (西扱い) is dimmed");
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob");
+	await sleep(1200);
+	check(!((await stA()).slevers || []).length, "the lever of another area cannot be turned");
+	await page.selectOption("#deskSel", "2");
+	await waitFor(async () => await page.locator("#relayBoard .rlever.other[data-sl='3,5,0']").count() === 0, 10000, "S1 not dimmed");
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob");
+	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "3,5,0"), 10000, "S1 turned in its own area");
+	await page.click("#relayBoard .rlever[data-sl='3,5,0'] .knob");
+	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "S1 back");
+	check(true, "with 西扱い chosen, S1 can be turned");
+	await page.selectOption("#deskSel", "0");
+	await api("ar_del,ST,2"); await sleep(300); await api("ar_del,ST,1");
+	await waitFor(async () => !((await stA()).areas || []).length, 10000, "areas removed");
+	check(await page.locator("#deskSel").count() === 0, "no area selector without areas");
 	// the orientation of a relay panel is stored in the game (the same for everybody)
 	await page.click("#viewbar button[data-rot]");
 	await waitFor(async () => (await stA()).rot === 1, 10000, "relay panel turned");

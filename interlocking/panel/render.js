@@ -176,7 +176,7 @@ function renderMap() {
 			if (shuntColor(st, t.p)) mapKnob(t.p, x - dx * 20 * sc, y - dy * 20 * sc, dx, dy, true);
 			continue;
 		}
-		const grp = el("g", { class: "clickable" }, g);
+		const grp = el("g", { class: "clickable" + (interlocked && !mayHandle(st, t.p) ? " other" : "") }, g);
 		// arrow for the direction of travel
 		const ax = cx(t.p) + dx * 10 * sc, ay = cy(t.p) + dy * 10 * sc, a7 = 7 * sc, a5 = 5 * sc;
 		el("polygon", { points: `${ax},${ay} ${ax - dx * a7 + dy * a5},${ay - dy * a7 - dx * a5} ${ax - dx * a7 - dy * a5},${ay - dy * a7 + dx * a5}`, fill: "#cfd6e0" }, grp);
@@ -261,7 +261,7 @@ function renderMap() {
 		}
 		const x = cx(t.p), y = cy(t.p), r = 7 * sc;
 		block(x - r, y - r, x + r, y + r, 3);
-		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
+		const grp = el("g", { class: (tab === "run" ? "clickable" : "") + (mayHandle(st, d.pos) ? "" : " other") }, g);
 		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(d.pos, true); });
 		if (d.shunt) {
 			// virtual shunting signal: a diamond (lit white when a route is set)
@@ -278,7 +278,7 @@ function renderMap() {
 		const [dx, dy] = SV(startTravelDir(st, x.pos) || E);
 		const bx = cx(t.p) - dx * 16 * sc + dy * 9 * sc, by = cy(t.p) - dy * 16 * sc - dx * 9 * sc, r = 5.5 * sc;
 		const sel = nxStart && nxStart.shunt && key(nxStart.pos) === key(x.pos);
-		const grp = el("g", { class: "clickable", "data-shuntstart": key(x.pos) }, g);
+		const grp = el("g", { class: "clickable" + (mayHandle(st, x.pos) ? "" : " other"), "data-shuntstart": key(x.pos) }, g);
 		el("rect", { x: bx - r, y: by - r, width: 2 * r, height: 2 * r, rx: 2, fill: extraColor(x.color), stroke: sel ? "var(--yellow)" : "#111", "stroke-width": sel ? 3 : 1.2 }, grp);
 		block(bx - r, by - r, bx + r, by + r, 3);
 		grp.appendChild(el("title", {})).textContent = `${signalLabel(st, x.pos)} の${extraKind(x.color)}（押してから着点ボタン）`;
@@ -313,7 +313,7 @@ function renderMap() {
 		const mk = sh ? key(pos) + "|S" : key(pos);
 		const k = .42 * sc;              // the lever of the board, scaled down
 		const r = 22 * k;                // radius of its base
-		const grp = el("g", { class: "mapknob" + (hoverLever === mk ? " hl" : ""), "data-mk": mk }, g);
+		const grp = el("g", { class: "mapknob" + (hoverLever === mk ? " hl" : "") + (mayHandle(st, pos) ? "" : " other"), "data-mk": mk }, g);
 		el("circle", { cx: x, cy: y, r: r + 3, class: "ring" }, grp);
 		const lg = el("g", { transform: `translate(${x - 30 * k} ${y - 40 * k}) scale(${k})` }, grp);
 		lg.innerHTML = leverShapes(v.color, v.angle ? Math.sign(v.angle) * 40 : 0, v.no);
@@ -365,6 +365,7 @@ function mostVisibleZ() {
 }
 
 function renderRun() {
+	renderDeskBar();
 	const st = station();
 	const lv = document.getElementById("levers");
 	const hint = document.getElementById("runHint");

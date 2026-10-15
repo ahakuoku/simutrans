@@ -55,6 +55,7 @@ function leverState(li) {
 }
 function setLever(li, pos) {
 	const st = station();
+	if (refuseOther(st, layout.points[layout.levers[li].pts[0]].t.p)) return;
 	// all points of the lever in one command: a crossover moves together or not at all
 	const spec = layout.levers[li].pts.map(i => {
 		const pt = layout.points[i];
@@ -173,6 +174,7 @@ function startClicked(pos, dep, sh = false) {
 	const st = station();
 	if (isRelay()) { turnSignalLever(pos, sleverOf(st, pos) ? "N" : null); return; }
 	if (!st.manual) { toast("自動モードです。「扱者」に切り替えてください", true); return; }
+	if (refuseOther(st, pos)) return;
 	// a route from this lever is set: pulling the lever back cancels it
 	const set = activeRoutes().find(r => r.station === st.id && key(r.start) === key(pos));
 	if (set) {

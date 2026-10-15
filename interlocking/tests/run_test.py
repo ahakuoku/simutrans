@@ -403,6 +403,24 @@ def run(args):
         check(not p.cmd(f"sl_turn,{sid},8,5,0,R,S")["ok"], "no shunting lever where none is set")
         check(p.cmd(f"lv_side,{sid},5,7,0,L")["ok"] and p.status()["stations"][0]["sides"] == [{"pos": [5, 7, 0], "side": "L"}], "side of a lever set by hand")
 
+        print("[4f] operating areas (扱い区分): one waiting lever per area")
+        check(p.cmd(f"lv_unpair,{sid},3,5,0")["ok"], "pair removed")
+        check(p.cmd(f"ar_name,{sid},1,東扱い")["ok"] and p.cmd(f"ar_name,{sid},2,西扱い")["ok"], "two areas")
+        check(not p.cmd(f"ar_name,{sid},4,x")["ok"], "areas are numbered without gaps")
+        check(p.cmd(f"ar_pos,{sid},3,5,0,1")["ok"] and p.cmd(f"ar_pos,{sid},5,7,0,2")["ok"], "S1 to 東扱い, the shunting signal to 西扱い")
+        check(not p.cmd(f"ar_pos,{sid},8,5,0,3")["ok"], "no such area")
+        st0 = p.status()["stations"][0]
+        check(st0["areas"] == ["東扱い", "西扱い"] and sorted((tuple(x["pos"]), x["a"]) for x in st0["area_of"]) == [((3, 5, 0), 1), ((5, 7, 0), 2)], f"areas stored: {st0['areas']} {st0['area_of']}")
+        check(p.cmd(f"sl_turn,{sid},3,5,0,L")["ok"] and p.cmd(f"sl_turn,{sid},5,7,0,L")["ok"], "a lever of each area waits for its destination at the same time")
+        check(p.cmd(f"sl_turn,{sid},5,7,0,N")["ok"] and p.cmd(f"ar_pos,{sid},5,7,0,1")["ok"], "back, the shunting signal to 東扱い")
+        res = p.cmd(f"sl_turn,{sid},5,7,0,L")
+        check(not res["ok"] and res["error"] == "another lever is waiting for its destination", "in the same area only one lever waits")
+        check(p.cmd(f"sl_turn,{sid},3,5,0,N")["ok"] and p.cmd(f"ar_pos,{sid},5,7,0,2")["ok"], "back, the shunting signal to 西扱い again")
+        check(p.cmd(f"ar_name,{sid},3,仮")["ok"] and p.cmd(f"ar_pos,{sid},8,5,0,3")["ok"] and p.cmd(f"ar_del,{sid},3")["ok"], "a third area added and removed")
+        st0 = p.status()["stations"][0]
+        check(len(st0["areas"]) == 2 and not any(x["pos"] == [8, 5, 0] for x in st0["area_of"]), "its lever is common again")
+        check(p.cmd(f"lv_pair,{sid},3,5,0,5,7,0")["ok"], "pair again")
+
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
         before = p.status()
@@ -421,6 +439,7 @@ def run(args):
         check([r["tiles"] for r in p.status()["routes"]] == [r["tiles"] for r in before["routes"]], "four rotations restore the route tiles")
         check(p.status()["stations"][0]["levers"] == before["stations"][0]["levers"], "four rotations restore the point levers")
         check(p.status()["stations"][0]["signals"][0]["pos"] == [3, 5, 0], "four rotations restore the signal position")
+        check(p.status()["stations"][0]["area_of"] == before["stations"][0]["area_of"], "four rotations restore the areas of the levers")
 
         print("[6] save and load")
         # set any free route (the train may just be running over one of them)
@@ -444,7 +463,7 @@ def run(args):
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
                                  st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
-                                 st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]]) for st in sts]
+                                 st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]], st["areas"], st["area_of"]) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")

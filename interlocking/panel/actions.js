@@ -8,6 +8,7 @@ function leverClicked(r) {
 	const st = station();
 	if (isRelay()) { toast("継電の盤では、信号てこで扱います", true); return; }
 	if (!st.manual) { toast("自動モードです。「扱者」に切り替えてください", true); return; }
+	if (refuseOther(st, r.start)) return;
 	if (r.state === "idle") command("set," + r.id, "進路設定 " + r.name);
 	else if (r.state === "set") command("cancel," + r.id, "進路取消 " + r.name);
 	else toast("列車が進入中です。通過すると自動で解除されます", true);

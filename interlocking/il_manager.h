@@ -138,6 +138,12 @@ struct il_station_t {
 	vector_tpl<koord3d> shunt_pos;
 	vector_tpl<uint8> shunt_col;
 	uint8 shunt_lever(koord3d pos) const;
+	/// operating areas (扱い区分) of a large station, for several operators: names of the areas 1..n,
+	/// and the area of start points and points (not listed = 0, common to all areas)
+	vector_tpl<plainstring> area_names;
+	vector_tpl<koord3d> area_pos;
+	vector_tpl<uint8> area_val;
+	uint8 area_of(koord3d pos) const;
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }
