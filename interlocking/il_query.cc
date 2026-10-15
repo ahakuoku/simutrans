@@ -87,6 +87,10 @@ void il_query::get_tracks_json(cbuffer_t &buf, koord p1, koord p2)
 				if(  signal_t *sig = gr->find<signal_t>()  ) {
 					buf.printf(",\"s\":{\"dir\":%u,\"aspect\":\"%s\",\"o\":%d,\"name\":", (unsigned)sig->get_dir(), aspect_name(sig), sig->get_owner_nr());
 					append_json_string(buf, sig->get_desc()->get_name());
+					if(  sig->get_desc()->is_choose_sign()  ) {
+						// choose signal; "g": its guide setting (連結誘導) is on
+						buf.printf(",\"ch\":1,\"g\":%d", sig->is_guide_signal() ? 1 : 0);
+					}
 					buf.append("}");
 				}
 				buf.append("}");

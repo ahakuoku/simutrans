@@ -197,7 +197,8 @@ v60 でこれらの名前や引数が変わっていたら、`interlocking/` 側
 - `panel_test.mjs`（Node.js + Playwright）: Web 盤を実際のブラウザで操作する。シナリオ il-test
 - `pass_test.py`: 通過列車。`tandem_test.py [--relay] [--lever G|P]`: 縦列停車。`panel_tandem_test.mjs`: 盤の「手前」の着点。
   この 3 つはシナリオ il-tandem（作業ディレクトリの `pak64/scenario/il-tandem` を `interlocking/tests/il-tandem` へのリンクにする）
-- `coupling_test.py [--relay]`: ピンクのてこで子編成を親編成に連結させる。シナリオ il-coupling（S1 が選択信号。リンクは同様）
+- `coupling_test.py [--relay]`: 留置線でピンクのてこで連結させ、連結したまま出発させる。シナリオ il-coupling（S1 が選択信号。リンクは同様）
+- `coupling_platform_test.py [--relay]`: 番線で連結、終端駅で切り離し、それぞれ出発の進路で出す。シナリオ il-coupling
 
 選択信号の処理のほか、**`convoi_t` の到着（経路の終わりに着くと到着扱い）**と
 **`rail_vehicle_t::block_reserver()` がマス単位で予約すること**を前提にしている（縦列停車・同じ駅の別番線への停車）。

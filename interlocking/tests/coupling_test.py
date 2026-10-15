@@ -84,6 +84,23 @@ def run(args):
             print("    trace of B:", trace[-8:])
             print("    convoys:", p.request("debug_convoys")["convoys"])
             raise
+
+        print("[3] the coupled train leaves the siding as one train")
+        dep = p.status()["stations"][0]["departures"][0]
+        check(dep["pos"] == [12, 6, 0], f"it leaves at {dep['pos']}")
+        time.sleep(2)
+        check(tuple(conv(ca)["pos"])[0] == 12 and tuple(conv(cb)["pos"])[0] == 12, "both still wait in the siding (no departure route)")
+        out = ";".join(f"{x}:{y}:{z}" for x, y, z in [(12, 6, 0), (12, 5, 0), (13, 5, 0), (14, 5, 0)])
+        if args.relay:
+            check(p.cmd(f"sl_turn,{sid},12,6,0,L")["ok"], "departure lever turned")
+        r = p.cmd(f"set_path,{sid},{out},out")
+        check(r["ok"], f"route out of the siding to B ({r.get('error')})")
+        at_b = lambda c: tuple(conv(c)["pos"])[1] == 5 and tuple(conv(c)["pos"])[0] >= 13
+        wait_until(lambda: at_b(ca) or at_b(cb), 120, "the train at B")
+        time.sleep(2)
+        a, b = conv(ca), conv(cb)
+        check(a.get("coupled_to") == cb or b.get("coupled_to") == ca, f"still coupled at B: A {a}, B {b}")
+        check(tuple(a["pos"])[1] == 5 and tuple(b["pos"])[1] == 5, f"both left the siding: A {a['pos']}, B {b['pos']}")
     finally:
         game.terminate()
         try:

@@ -341,6 +341,18 @@ function renderRelayBoard() {
 // ---------------------------------------------------------------------------
 // setup tab: kind of the interlocking, times, companies that may operate
 // ---------------------------------------------------------------------------
+// a pink lever (誘導) on a signal that a coupling train would pass without asking it:
+// OTRP checks the signal for a coupling child only when it is a choose signal with its guide setting on
+function couplingWarnings(st) {
+	const bad = (st.signals || []).filter(s => shuntColor(st, s.pos) === "P").map(s => tileIndex.get(key(s.pos)))
+		.filter(t => t && t.s && !(t.s.ch && t.s.g));
+	if (!bad.length) return "";
+	const line = t => `<b>${esc(signalLabel(st, t.p))}</b> は${t.s.ch ? "「連結誘導」がオフです。オンにしてください" : "普通の信号です。選択信号にして「連結誘導」をオンにしてください"}`;
+	return `<div class="check warn" data-couplingwarn="1">ピンクのてこで連結に使うときの注意（設定はゲームの信号の窓で）：<br>${bad.map(line).join("<br>")}。<br>
+		そうしないと、連結する列車はこの信号を確かめずに進みます。</div>`;
+}
+
+
 function renderStationCfg() {
 	const box = document.getElementById("stationCfg");
 	const st = station();
@@ -381,6 +393,7 @@ function renderStationCfg() {
 			return `<label>${esc(signalLabel(st, s.pos))}<select data-lvshunt="${key(s.pos)}">
 				<option value="N" ${c === "N" ? "selected" : ""}>なし</option><option value="W" ${c === "W" ? "selected" : ""}>白（入換信号機）</option><option value="G" ${c === "G" ? "selected" : ""}>緑（入換標識）</option><option value="P" ${c === "P" ? "selected" : ""}>ピンク（誘導信号）</option></select></label>`;
 		}).join("")}</div>
+		${couplingWarnings(st)}
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;

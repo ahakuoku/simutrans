@@ -378,6 +378,14 @@ try {
 	check(!shuntDests.some(t => t.includes("出口")), "shunting lever: no exit offered (" + shuntDests.join(" / ") + ")");
 	await page.click("#relayBoard .rlever[data-sl='3,5,0|S'] .knob");
 	await waitFor(async () => !((await stA()).slevers || []).length, 10000, "shunting lever back");
+	// a pink lever (誘導) on the plain signal S1: the setup tab warns that a coupling train would pass it
+	await page.click("nav button[data-tab=setup]");
+	check(await page.locator("#stationCfg [data-couplingwarn]").count() === 0, "no coupling warning for a green lever");
+	await page.selectOption("#stationCfg [data-lvshunt='3,5,0']", "P");
+	await waitFor(async () => ((await stA()).shunt_levers || []).some(x => x.pos.join(",") === "3,5,0" && x.color === "P"), 10000, "pink lever");
+	await page.waitForSelector("#stationCfg [data-couplingwarn]", { timeout: 10000 });
+	check((await page.textContent("#stationCfg [data-couplingwarn]")).includes("普通の信号"), "pink lever on a plain signal: coupling warning shown");
+	await page.click("nav button[data-tab=run]");
 	await page.evaluate(() => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: "lv_shunt," + station().id + ",3,5,0,N" }));
 	await waitFor(async () => !((await stA()).shunt_levers || []).length, 10000, "shunting lever removed");
 	check(true, "shunting lever turned and back, removed");
