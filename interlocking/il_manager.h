@@ -99,6 +99,17 @@ struct il_point_t {
 	uint32 moving_until;
 };
 
+/// a part of the custom panel of a station (カスタム盤): position on the panel grid (2 per tile),
+/// the game tiles it stands for (track, start point, point, destination) and a text (encoded by the panel)
+struct il_part_t {
+	uint8 type;                 ///< 'T' track, 'S' start lever, 'P' point, 'D' destination, 'H' platform, 'L' text
+	sint16 x1, y1, x2, y2;
+	uint8 flags;                ///< 'S': 1 = the shunting lever of the start point
+	vector_tpl<koord3d> bind;
+	plainstring text;
+	il_part_t() : type(0), x1(0), y1(0), x2(0), y2(0), flags(0) {}
+};
+
 /// one interlocked station (the unit of one panel)
 struct il_station_t {
 	uint16 id;
@@ -144,9 +155,12 @@ struct il_station_t {
 	vector_tpl<koord3d> area_pos;
 	vector_tpl<uint8> area_val;
 	uint8 area_of(koord3d pos) const;
+	/// custom panel (カスタム盤); empty = the panel draws the track plan by itself
+	vector_tpl<il_part_t *> parts;
+	uint32 parts_rev;   ///< changes with every change of the parts (not saved): the panel fetches them again
 
-	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false) {}
-	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); }
+	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0) {}
+	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); clear_ptr_vector(parts); }
 	il_slever_t *find_slever(koord3d pos, sint8 lever = -1) const;
 	il_point_t *find_point(koord3d pos) const;
 };
@@ -190,6 +204,8 @@ public:
 
 	/// status of all stations and routes as one JSON object
 	void get_status_json(cbuffer_t &buf) const;
+	/// the custom panel of a station
+	void get_panel_json(cbuffer_t &buf, uint16 station) const;
 
 	/// all rail signals in the rectangle as one JSON object
 	void get_signals_json(cbuffer_t &buf, koord p1, koord p2) const;
@@ -202,7 +218,7 @@ public:
 	const il_route_t *get_route(uint16 id) const;
 
 private:
-	interlocking_manager_t() : next_id(1), last_wrong_route(0) {}
+	interlocking_manager_t() : next_id(1), last_wrong_route(0), stage_station(0) {}
 	~interlocking_manager_t() { reset(); }
 
 	vector_tpl<il_station_t *> stations;
@@ -214,6 +230,9 @@ private:
 	/// local events for the panel (not part of the game state)
 	vector_tpl<plainstring> events;
 	uint32 last_wrong_route; ///< only to avoid repeating the same event
+	/// custom panel being uploaded in parts (cp_begin, cp_add ..., cp_end), not saved
+	vector_tpl<il_part_t *> stage;
+	uint16 stage_station;
 
 
 	il_station_t *find_station(uint16 id) const;
@@ -266,6 +285,8 @@ private:
 	const char *check_path(const il_station_t *st, const vector_tpl<koord3d> &tiles) const;
 	/// re-reads the track of a station after it was rebuilt in the game (配線を読み直す); summary as an event
 	void rescan_station(il_station_t *st);
+	/// parts of a custom panel as sent by the panel (cp_add)
+	const char *parse_parts(const char *s, vector_tpl<il_part_t *> &out) const;
 	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);
 	/// route from a tile list made on the panel (start lever + destination button)
 	/// extra: with the shunting / calling-on lever of the start (electronic panel; a relay panel knows it from the turned lever)

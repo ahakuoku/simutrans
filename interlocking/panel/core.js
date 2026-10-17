@@ -364,7 +364,7 @@ function renderViewbar() {
 	if (!a) return;
 	const o = viewOpt();
 	const ls = layers();
-	let html = `<button data-zoom="out" title="縮小（Ctrl＋ホイール）">－</button><button data-zoom="fit" title="全体を表示">${Math.round(zoom * 100)}%</button><button data-zoom="in" title="拡大（Ctrl＋ホイール）">＋</button><span class="sep"></span>`;
+	let html = customBarHtml(station()) + `<span class="sep"></span><button data-zoom="out" title="縮小（Ctrl＋ホイール）">－</button><button data-zoom="fit" title="全体を表示">${Math.round(zoom * 100)}%</button><button data-zoom="in" title="拡大（Ctrl＋ホイール）">＋</button><span class="sep"></span>`;
 	const vr = viewRot();
 	html += `<button data-rot="1" title="地図を時計回りに90°回す（縦に引かれた駅を横向きにする）${isRelay() ? "。継電の盤は全員同じ向き（ゲームに保存）" : ""}">↻ 回転 ${vr * 90}°${vr ? "（北は" + ["上", "右", "下", "左"][vr] + "）" : ""}</button><span class="sep"></span>`;
 	if (isRelay()) html += `<button data-v="levers" class="${o.mapLevers !== false ? "on" : ""}" title="運転タブで、信号てこを地図の上にも表示する">地図にてこ</button>`;
@@ -389,6 +389,7 @@ function renderViewbar() {
 	bar.dataset.html = html;
 	bar.innerHTML = html;
 	for (const b of bar.querySelectorAll("button")) b.addEventListener("click", () => {
+		if (b.dataset.cp) { customBarClick(b); return; }
 		if (b.dataset.zoom) {
 			setZoom(b.dataset.zoom === "in" ? zoom * 1.25 : b.dataset.zoom === "out" ? zoom / 1.25 : 1);
 			return;

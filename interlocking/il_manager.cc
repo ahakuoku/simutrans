@@ -51,6 +51,14 @@
 #define IL_MAX_AREAS 9
 #define IL_MAX_AREA_ENTRIES 512
 
+// custom panel (カスタム盤): parts of a station, tiles of one part, length of a text
+#define IL_MAX_PARTS 4000
+#define IL_MAX_PART_TILES 512
+#define IL_MAX_PART_TEXT 400
+
+/// revision of custom panels (only for the browsers on this computer: not part of the game state)
+static uint32 panel_rev_counter = 0;
+
 
 static interlocking_manager_t *il_instance = NULL;
 
@@ -68,6 +76,8 @@ void interlocking_manager_t::reset()
 {
 	clear_ptr_vector(stations);
 	clear_ptr_vector(routes);
+	clear_ptr_vector(stage);
+	stage_station = 0;
 	next_id = 1;
 	push_event("{\"type\":\"reset\"}");
 }
@@ -852,7 +862,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
 		max_fields = 6;
 	}
-	else if(  strncmp(buf, "pt_set,", 7) == 0  ) {
+	else if(  strncmp(buf, "pt_set,", 7) == 0  ||  strncmp(buf, "cp_add,", 7) == 0  ) {
 		max_fields = 3;
 	}
 	char *f[10];
@@ -1167,6 +1177,47 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 				st->shunt_pos.append(pos);
 				st->shunt_col.append((uint8)col);
 			}
+		}
+	}
+	else if(  (strcmp(cmd, "cp_begin") == 0  ||  strcmp(cmd, "cp_add") == 0  ||  strcmp(cmd, "cp_end") == 0)  &&  n >= 2  ) {
+		// a custom panel is uploaded in parts: cp_begin, cp_add,<parts> ..., cp_end,<number of parts> (or 0 = no custom panel)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  cmd[3] == 'b'  ) {
+			clear_ptr_vector(stage);
+			stage_station = st->id;
+		}
+		else if(  stage_station != st->id  ) {
+			error = "upload of the panel was interrupted";
+		}
+		else if(  cmd[3] == 'a'  ) {
+			error = n >= 3 ? parse_parts(f[2], stage) : "no parts";
+			if(  error  ) {
+				clear_ptr_vector(stage);
+				stage_station = 0;
+			}
+		}
+		else if(  n < 3  ||  (uint32)atoi(f[2]) != stage.get_count()  ) {
+			error = "upload of the panel was interrupted";
+			clear_ptr_vector(stage);
+			stage_station = 0;
+		}
+		else {
+			clear_ptr_vector(st->parts);
+			FOR(vector_tpl<il_part_t *>, p, stage) {
+				st->parts.append(p);
+			}
+			stage.clear();
+			stage_station = 0;
+			st->parts_rev = ++panel_rev_counter;
+			cbuffer_t ev;
+			ev.printf("{\"type\":\"panel\",\"station\":%u,\"parts\":%u}", st->id, st->parts.get_count());
+			push_event(ev);
 		}
 	}
 	else if(  strcmp(cmd, "st_rescan") == 0  &&  n >= 2  ) {
@@ -1732,6 +1783,67 @@ const char *interlocking_manager_t::check_path(const il_station_t *st, const vec
 			return "the path does not follow the track";
 		}
 		prev = d;
+	}
+	return NULL;
+}
+
+
+/// parts of a custom panel: "T/x1/y1/x2/y2/flags/x:y:z+x:y:z/text;..." (the text is encoded by the panel)
+const char *interlocking_manager_t::parse_parts(const char *s, vector_tpl<il_part_t *> &out) const
+{
+	while(  s  &&  *s  ) {
+		const char *end = strchr(s, ';');
+		const size_t len = end ? (size_t)(end - s) : strlen(s);
+		char part[4096];
+		if(  len >= sizeof(part)  ) {
+			return "bad panel part";
+		}
+		memcpy(part, s, len);
+		part[len] = 0;
+		s = end ? end + 1 : NULL;
+		if(  !*part  ) {
+			continue;
+		}
+		char *fld[8];
+		uint32 nf = 0;
+		for(  char *p = part;  nf < 8;  ) {
+			fld[nf++] = p;
+			p = strchr(p, '/');
+			if(  !p  ) {
+				break;
+			}
+			*p++ = 0;
+		}
+		if(  nf < 7  ||  !strchr("TSPDHL", fld[0][0])  ||  out.get_count() >= IL_MAX_PARTS  ) {
+			return "bad panel part";
+		}
+		il_part_t *pt = new il_part_t();
+		pt->type = (uint8)fld[0][0];
+		pt->x1 = (sint16)atoi(fld[1]);
+		pt->y1 = (sint16)atoi(fld[2]);
+		pt->x2 = (sint16)atoi(fld[3]);
+		pt->y2 = (sint16)atoi(fld[4]);
+		pt->flags = (uint8)atoi(fld[5]);
+		for(  const char *b = fld[6];  b  &&  *b;  ) {
+			int x, y, z;
+			if(  sscanf(b, "%d:%d:%d", &x, &y, &z) != 3  ||  pt->bind.get_count() >= IL_MAX_PART_TILES  ) {
+				delete pt;
+				return "bad panel part";
+			}
+			pt->bind.append(koord3d((sint16)x, (sint16)y, (sint8)z));
+			b = strchr(b, '+');
+			if(  b  ) {
+				b++;
+			}
+		}
+		if(  nf >= 8  ) {
+			if(  strlen(fld[7]) > IL_MAX_PART_TEXT  ) {
+				delete pt;
+				return "bad panel part";
+			}
+			pt->text = fld[7];
+		}
+		out.append(pt);
 	}
 	return NULL;
 }
@@ -2537,7 +2649,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 12
+#define IL_BLOCK_VERSION 13
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -2695,6 +2807,28 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 			b.rdwr_pos_vector(st->area_pos);
 			b.rdwr_byte_vector(st->area_val);
 		}
+		if(  version >= 13  ) {
+			uint32 np = st->parts.get_count();
+			b.rdwr_long(np);
+			for(  uint32 j = 0;  j < np  &&  j < IL_MAX_PARTS  &&  !b.broken;  j++  ) {
+				il_part_t *pt = b.loading ? new il_part_t() : st->parts[j];
+				b.begin_section();
+				b.rdwr_byte(pt->type);
+				b.rdwr_short(pt->x1);
+				b.rdwr_short(pt->y1);
+				b.rdwr_short(pt->x2);
+				b.rdwr_short(pt->y2);
+				b.rdwr_byte(pt->flags);
+				b.rdwr_pos_vector(pt->bind);
+				b.rdwr_str(pt->text);
+				future_fields(b);
+				b.end_section();
+				if(  b.loading  ) {
+					st->parts.append(pt);
+					st->parts_rev = ++panel_rev_counter;
+				}
+			}
+		}
 		future_fields(b);
 		b.end_section();
 		if(  b.loading  ) {
@@ -2781,6 +2915,13 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		for(  uint32 i = 0;  i < st->area_pos.get_count();  i++  ) {
 			st->area_pos[i].rotate90(y_size);
 		}
+		// the custom panel keeps its drawing, only the tiles it stands for turn with the map
+		FOR(vector_tpl<il_part_t *>, pt, st->parts) {
+			FOR(vector_tpl<koord3d>, &t, pt->bind) {
+				t.rotate90(y_size);
+			}
+		}
+		st->parts_rev = ++panel_rev_counter;
 		FOR(vector_tpl<il_point_t *>, pt, st->points) {
 			pt->pos.rotate90(y_size);
 			pt->a = ribi_t::rotate90(pt->a);
@@ -2807,6 +2948,25 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 // ---------------------------------------------------------------------------
 // read only information for the external panel
 // ---------------------------------------------------------------------------
+
+void interlocking_manager_t::get_panel_json(cbuffer_t &buf, uint16 station) const
+{
+	const il_station_t *st = find_station(station);
+	buf.printf("{\"type\":\"panel\",\"station\":%u,\"rev\":%u,\"parts\":[", station, st ? st->parts_rev : 0);
+	for(  uint32 i = 0;  st  &&  i < st->parts.get_count();  i++  ) {
+		const il_part_t *pt = st->parts[i];
+		buf.printf("%s{\"t\":\"%c\",\"x1\":%d,\"y1\":%d,\"x2\":%d,\"y2\":%d,\"f\":%u,\"b\":[", i ? "," : "", pt->type, pt->x1, pt->y1, pt->x2, pt->y2, pt->flags);
+		for(  uint32 j = 0;  j < pt->bind.get_count();  j++  ) {
+			buf.append(j ? "," : "");
+			append_json_pos(buf, pt->bind[j]);
+		}
+		buf.append("],\"s\":");
+		append_json_string(buf, pt->text.c_str());
+		buf.append("}");
+	}
+	buf.append("]}");
+}
+
 
 void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 {
@@ -2848,7 +3008,8 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			append_json_pos(buf, st->shunt_pos[i]);
 			buf.printf(",\"color\":\"%c\"}", st->shunt_col[i]);
 		}
-		buf.append("],\"areas\":[");
+		buf.printf("],\"parts\":%u,\"parts_rev\":%u", st->parts.get_count(), st->parts_rev);
+		buf.append(",\"areas\":[");
 		for(  uint32 i = 0;  i < st->area_names.get_count();  i++  ) {
 			if(  i  ) {
 				buf.append(",");

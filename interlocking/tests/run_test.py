@@ -17,6 +17,7 @@ Usage:
 The workdir must contain pak64/scenario/il-test (link to interlocking/tests/il-test).
 """
 
+import urllib.request
 import argparse
 import json
 import os
@@ -421,12 +422,28 @@ def run(args):
         check(len(st0["areas"]) == 2 and not any(x["pos"] == [8, 5, 0] for x in st0["area_of"]), "its lever is common again")
         check(p.cmd(f"lv_pair,{sid},3,5,0,5,7,0")["ok"], "pair again")
 
+        print("[4g] custom panel (カスタム盤): uploaded in parts, kept by the game")
+        panel = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/panel?id={sid}").read())
+        check(p.cmd(f"cp_begin,{sid}")["ok"], "upload started")
+        check(p.cmd(f"cp_add,{sid},T/2/3/12/3/0/3:5:0+4:5:0+5:5:0/;S/1/2/1/2/0/3:5:0/")["ok"], "parts sent")
+        check(p.cmd(f"cp_add,{sid},L/4/8/4/8/0//%E4%B8%8A%E3%82%8A")["ok"], "more parts sent")
+        check(not p.cmd(f"cp_end,{sid},5")["ok"], "a wrong count is refused (lost parts)")
+        check(p.status()["stations"][0]["parts"] == 0, "nothing stored")
+        check(not p.cmd(f"cp_add,{sid},X/1/1/1/1/0//")["ok"], "a part without an upload is refused")
+        for c in (f"cp_begin,{sid}", f"cp_add,{sid},T/2/3/12/3/0/3:5:0+4:5:0+5:5:0/;S/1/2/1/2/0/3:5:0/", f"cp_add,{sid},L/4/8/4/8/0//%E4%B8%8A%E3%82%8A", f"cp_end,{sid},3"):
+            check(p.cmd(c)["ok"], c.split(",")[0])
+        pn = panel()
+        check(p.status()["stations"][0]["parts"] == 3 and [x["t"] for x in pn["parts"]] == ["T", "S", "L"], f"custom panel stored: {[x['t'] for x in pn['parts']]}")
+        check(pn["parts"][0]["b"] == [[3, 5, 0], [4, 5, 0], [5, 5, 0]] and pn["parts"][2]["s"] == "%E4%B8%8A%E3%82%8A", "tiles and text kept")
+
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
         before = p.status()
         p.request(f"debug_tool {rot} ")
         p.wait_event(lambda e: e["type"] == "rotated", 30)
         after = p.status()
+        pr = panel()["parts"]
+        check(pr[0]["b"] != pn["parts"][0]["b"] and (pr[0]["x1"], pr[0]["y1"], pr[0]["x2"], pr[0]["y2"]) == (2, 3, 12, 3), "custom panel: its tiles turn with the map, its drawing stays")
         s_after = after["stations"][0]["signals"][0]
         d_after = [st for st in after["stations"] if st["id"] == sidb][0]["departures"][0]
         lv_after = after["stations"][0]["levers"]
@@ -440,6 +457,7 @@ def run(args):
         check(p.status()["stations"][0]["levers"] == before["stations"][0]["levers"], "four rotations restore the point levers")
         check(p.status()["stations"][0]["signals"][0]["pos"] == [3, 5, 0], "four rotations restore the signal position")
         check(p.status()["stations"][0]["area_of"] == before["stations"][0]["area_of"], "four rotations restore the areas of the levers")
+        check(panel()["parts"] == pn["parts"], "four rotations restore the tiles of the custom panel (its drawing is kept)")
 
         print("[6] save and load")
         # set any free route (the train may just be running over one of them)
@@ -467,6 +485,8 @@ def run(args):
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")
+        pl = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/panel?id={loaded['stations'][0]['id']}").read())
+        check([(x["t"], x["x1"], x["y1"], x["b"], x["s"]) for x in pl["parts"]] == [("T", 2, 3, [[3, 5, 0], [4, 5, 0], [5, 5, 0]], ""), ("S", 1, 2, [[3, 5, 0]], ""), ("L", 4, 8, [], "%E4%B8%8A%E3%82%8A")], "custom panel restored")
     finally:
         game.terminate()
         try:

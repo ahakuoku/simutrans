@@ -62,6 +62,9 @@ function renderMap() {
 	document.getElementById("mapEmpty").style.display = a ? "none" : "block";
 	svg.style.display = a ? "block" : "none";
 	if (!a) return;
+	// the custom panel of the station (カスタム盤) instead of the track plan
+	if (customView(station())) { renderCustom(); return; }
+	svg.onmousedown = svg.onmousemove = svg.onmouseup = svg.ondblclick = null;
 	// fit the area into the window
 	const wrap = document.getElementById("mapwrap");
 	// the panel may be turned (a station drawn north-south on the map can be shown left-right like a real panel)

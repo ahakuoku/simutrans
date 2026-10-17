@@ -16,7 +16,7 @@
 | `PROTOCOL.md` | 盤との通信の仕様 |
 | `PORTING.md` | 新しい OTRP への移植手順 |
 | `hooks.patch` / `check_hooks.sh` | 移植用のパッチと確認スクリプト |
-| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、`rescan_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
+| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、`rescan_test.py`、`panel_custom_test.mjs`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
 | `tools/il_cli.py` | 手で試すための簡易コンソール盤 |
 | `tools/build_windows.sh` | Linux 上で Windows 64bit 版をクロスビルドするスクリプト（MinGW） |
 
@@ -149,6 +149,20 @@
 - 新しく置いた信号は自動では登録しない（表示範囲の未登録の信号を一覧に出す）
 
 結果は設定タブとログに出る。
+
+### カスタム盤（駅ごとの盤面）
+
+地図の上のバーの **カスタム盤を作る** を押すと、今の略図（表示範囲・向き）から下書きができる。
+線路はまっすぐな線にまとめられ、信号てこ・入換てこ・ポイント・着点ボタン・番線がその上に並ぶ。
+
+- 編集：部品を押して選び、ドラッグで動かす（方眼はゲームの 1 マス＝2 目）。線路の線は、両端の黄色い四角をドラッグして伸ばしたり斜めにしたりできる。
+  矢印キーで 1 目ずつ動かせる。Delete キー（または「削除」）で消す。「文字を追加」で盤に文字を書ける。文字・着点ボタンの名前は、ダブルクリックで書き換える。
+- 「適用」でゲームに保存し、全員の盤に出る（セーブにも残る）。「やめる」で編集を捨てる。「下書きを作り直す」で今の略図からやり直す。
+- 運転：カスタム盤の上で、今までの盤と同じように扱える（電子＝信号を押して着点ボタン、継電＝てこ）。在線・進路の色も同じ。
+- 「略図」と「カスタム盤」は、ブラウザごとに切り替えられる。
+- 編集できるのは、駅の所有会社と操作できる会社。
+- 配線を作り直して、部品が結びついたマス・信号がなくなると、その部品は灰色の破線になり、扱えない。編集で消すか、下書きを作り直す。
+- マップを回転しても、カスタム盤の絵は変わらない（結びつきだけが回転に合わせて変わる）。
 
 ### てこの盤を閉じる
 
