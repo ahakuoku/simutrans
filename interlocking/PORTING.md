@@ -200,6 +200,7 @@ v60 でこれらの名前や引数が変わっていたら、`interlocking/` 側
 - `coupling_test.py [--relay] [--save | --auto]`: 留置線でピンクのてこで連結させ、連結したまま出発させる。
   `--save` はピンクの進路を引いてからセーブ・ロード、`--auto` は自動モード。シナリオ il-coupling（S1・S2 が選択信号。リンクは同様）
 - `panel_custom_test.mjs`: カスタム盤（下書き、保存、運転、編集、継電）。シナリオ il-tandem
+- `marks_test.py`: マグネット・メモ（使用停止で進路・てこ・ポイントを止める、回転、セーブ）。シナリオ il-tandem
 - `rescan_test.py`: 配線を読み直す（番線を短くする・線路を外す・信号を撤去する）。シナリオ il-tandem。
   ゲームの一般ツール（撤去など）は、テスト用の `debug_work <ツール番号> x,y,z`（`TID_IL_DEBUG` のときだけ）で使う
 - `coupling_more_test.py --case mid|depart [--relay]`: mid＝途中駅で切り離し、残った列車が出発点の手前から出る（y=12 の線）。

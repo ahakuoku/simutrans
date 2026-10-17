@@ -298,6 +298,11 @@ function renderMap() {
 		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, hl.name, { "font-size": 11, fill: "#9fb3cf" });
 	}
 	placeLabels();
+	// magnets and memos, and (with a tool chosen) where they can be put
+	if (st && tab === "run") {
+		drawMarks(g, st, (p) => { const t = tileIndex.get(key(p)); return t && isVisible(t) ? [cx(t.p), cy(t.p)] : null; }, sc);
+		drawMarkTargets(g, tiles.filter(t => isVisible(t) && t.r).map(t => [t.p, cx(t.p), cy(t.p)]), sc);
+	}
 	// the signal pointed at in a list of the setup tab
 	if (hoverSignal) {
 		const t = tileIndex.get(hoverSignal);
@@ -387,6 +392,7 @@ function lineBadge(name) {
 
 function renderRun() {
 	renderDeskBar();
+	renderMarkBar();
 	const st = station();
 	const lv = document.getElementById("levers");
 	const hint = document.getElementById("runHint");

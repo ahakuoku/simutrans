@@ -103,10 +103,75 @@ try {
 	check(true, "the lever of S1 turned from the custom panel");
 	await page.screenshot({ path: path.join(shots, "custom_relay.png") });
 
+	console.log("[6] decorations and the colour of the panel");
+	await cmd(`st_cfg,${sid},0,0,5,3,2`); await sleep(1200);
+	await page.click("#viewbar button[data-cp=edit]");
+	await page.waitForSelector("#map .cpart");
+	const place = async (t, answer, dx, dy) => {
+		await page.click(`#viewbar button[data-cp=add][data-t=${t}]`);
+		if (answer !== null) { page.removeAllListeners("dialog"); page.once("dialog", d => d.accept(answer)); }
+		const b = await page.locator("#map").boundingBox();
+		await page.mouse.click(b.x + dx, b.y + b.height - dy);
+		await sleep(300);
+		page.removeAllListeners("dialog"); page.on("dialog", d => d.accept());
+	};
+	await place("A", "至 東京", 120, 120);
+	await place("F", "東扱い", 300, 200);
+	await page.click("#viewbar button[data-cp=add][data-t=C]"); await sleep(200);
+	await page.click("#viewbar button[data-cp=add][data-t=K]"); await sleep(200);
+	await page.selectOption("#viewbar select[data-cp=color]", "1");
+	await sleep(300);
+	await page.screenshot({ path: path.join(shots, "custom_decor_edit.png") });
+	await page.click("#viewbar button[data-cp=apply]");
+	await waitFor(async () => (await panel(sid)).parts.some(p => p.t === "A"), 10000, "decorations saved");
+	const dp = (await panel(sid)).parts;
+	check(["A", "F", "C", "K"].every(t => dp.some(p => p.t === t)), "arrow, frame, clock and compass saved");
+	check(dp.some(p => p.t === "A" && decodeURIComponent(p.s) === "至 東京") && dp.some(p => p.t === "F" && decodeURIComponent(p.s) === "東扱い"), "their texts saved");
+	check(dp.some(p => p.t === "Y" && (p.f >> 4) === 1), "the colour of the panel saved (緑盤)");
+
+	console.log("[7] magnets and memos on the custom panel");
+	await page.click("#markBar [data-mtool=X]");
+	await page.click("#map circle.marktarget:has(title:text('(5, 5, 0)'))");
+	await waitFor(async () => ((await st()).stations[0].marks || []).some(m => m.k === "X"), 10000, "magnet");
+	check(true, "使用停止 put on the track at (5,5)");
+	await page.click("#markBar [data-mtool=M]");
+	await page.click("#markBar [data-mword='保守']");
+	await page.click("#map circle.marktarget:has(title:text('(6, 5, 0)'))");
+	await page.click("#markBar [data-mtool=O]");
+	page.removeAllListeners("dialog"); page.once("dialog", d => d.accept("点検中です"));
+	await page.click("#map circle.marktarget:has(title:text('(7, 5, 0)'))");
+	await waitFor(async () => ((await st()).stations[0].marks || []).length === 3, 10000, "three marks");
+	page.removeAllListeners("dialog"); page.on("dialog", d => d.accept());
+	const ms = (await st()).stations[0].marks;
+	check(ms.some(m => m.k === "M" && decodeURIComponent(m.s) === "保守") && ms.some(m => m.k === "O" && decodeURIComponent(m.s) === "点検中です"), "tag 保守 and a memo put with one click each");
+	await page.click("#markBar [data-mtool=O]");   // tool off
+	await page.waitForSelector("#map [data-mark]");
+	await page.click(`#map [data-mark='${ms.find(m => m.k === "O").id}']`);
+	await sleep(500);
+	await page.screenshot({ path: path.join(shots, "custom_marks.png") });
+	// the magnet blocks the route S1 -> platform 1
+	await page.click("#map [data-part]:has(text:text-is('S1'))");
+	await sleep(600);
+	const pf1 = await page.evaluate(() => platformName(station(), 0));
+	const blocked = await page.locator(`#map g.blink:has(text:text-is('${pf1}'))`).count();
+	if (blocked) await page.click(`#map g.blink:has(text:text-is('${pf1}'))`);
+	else await page.evaluate(() => destinationClicked("p0"));
+	await sleep(1500);
+	check(!(await st()).routes.some(r => r.temp && r.state !== "idle"), "no route over the magnet 使用停止");
+	await page.click("#markBar [data-mtool=del]");
+	await page.click(`#map [data-mark='${ms.find(m => m.k === "X").id}']`);
+	await waitFor(async () => !((await st()).stations[0].marks || []).some(m => m.k === "X"), 10000, "magnet removed");
+	check(true, "the magnet is removed with はがす");
+	await page.click("#markBar [data-mtool=del]");
+
 	console.log("[6] back to the track plan, and no custom panel any more");
 	await page.click("#viewbar button[data-cp=auto]");
 	await waitFor(async () => (await page.locator("#map [data-part]").count()) === 0, 5000, "track plan");
 	check(true, "the track plan is shown again (this browser)");
+	await sleep(800);
+	const nm = await page.locator("#map [data-mark]").count();
+	check(nm === 2, `the tag and the memo are on the track plan, too (${nm})`);
+	await page.screenshot({ path: path.join(shots, "plan_marks.png") });
 	await browser.close();
 } finally { game.kill(); }
 console.log(failed ? "TEST FAILED" : "ALL CUSTOM PANEL TESTS PASSED");

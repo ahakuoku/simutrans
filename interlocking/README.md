@@ -16,7 +16,7 @@
 | `PROTOCOL.md` | 盤との通信の仕様 |
 | `PORTING.md` | 新しい OTRP への移植手順 |
 | `hooks.patch` / `check_hooks.sh` | 移植用のパッチと確認スクリプト |
-| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、`rescan_test.py`、`panel_custom_test.mjs`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
+| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、`rescan_test.py`、`panel_custom_test.mjs`、`marks_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
 | `tools/il_cli.py` | 手で試すための簡易コンソール盤 |
 | `tools/build_windows.sh` | Linux 上で Windows 64bit 版をクロスビルドするスクリプト（MinGW） |
 
@@ -163,6 +163,18 @@
 - 編集できるのは、駅の所有会社と操作できる会社。
 - 配線を作り直して、部品が結びついたマス・信号がなくなると、その部品は灰色の破線になり、扱えない。編集で消すか、下書きを作り直す。
 - マップを回転しても、カスタム盤の絵は変わらない（結びつきだけが回転に合わせて変わる）。
+
+### マグネット・メモ
+
+運転タブの「マグネット・メモ」で道具を選び、地図（略図・カスタム盤のどちらでも）の線路・信号・ポイントを押すと貼れる。全員の盤に出て、セーブにも残る。
+
+- **使用停止**（赤）：貼った線路を通る進路は取れない。信号に貼るとそのてこは扱えず、ポイントに貼るとそのポイントは転換できない。
+- **札**：「回送」「臨時」「保守」などの言葉ボタン（または自由な文字）と色を選んで、押すだけで貼れる（表示だけ）。
+- **メモ**：付せん。押すと文字を入れる。盤の付せんを押すと開いて、書いた会社と日付が見える（表示だけ）。
+- **はがす**：選んでから、はがすものを押す。一覧の ✕ でもはがせる。
+- 配線を読み直したとき、線路がなくなった所のものは、はがれる。
+
+カスタム盤の編集には飾りの部品もある：文字、矢印（「至 ○○」）、区画の枠（色つき）、時計（ゲームの日時）、方位。盤の色（緑盤・灰盤など）も選べる。
 
 ### てこの盤を閉じる
 

@@ -15,6 +15,7 @@
 #include "../simconvoi.h"
 #include "../simhalt.h"
 #include "../simline.h"
+#include "../simintr.h"
 #include "../boden/grund.h"
 #include "../boden/wege/schiene.h"
 #include "../obj/signal.h"
@@ -55,6 +56,8 @@
 #define IL_MAX_PARTS 4000
 #define IL_MAX_PART_TILES 512
 #define IL_MAX_PART_TEXT 400
+// magnets and memos of a station
+#define IL_MAX_MARKS 500
 
 /// revision of custom panels (only for the browsers on this computer: not part of the game state)
 static uint32 panel_rev_counter = 0;
@@ -862,6 +865,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	else if(  strncmp(buf, "name_set,", 9) == 0  ) {
 		max_fields = 6;
 	}
+	else if(  strncmp(buf, "mk_add,", 7) == 0  ) {
+		max_fields = 8;
+	}
 	else if(  strncmp(buf, "pt_set,", 7) == 0  ||  strncmp(buf, "cp_add,", 7) == 0  ) {
 		max_fields = 3;
 	}
@@ -1220,6 +1226,61 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			push_event(ev);
 		}
 	}
+	else if(  strcmp(cmd, "mk_add") == 0  &&  n >= 7  ) {
+		// a magnet or a memo: mk_add,<station>,x,y,z,<X|M|O>,<colour>[,<text>]
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const koord3d pos((sint16)atoi(f[2]), (sint16)atoi(f[3]), (sint8)atoi(f[4]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  !strchr("XMO", f[5][0])  ||  !f[5][0]  ) {
+			error = "unknown kind of magnet";
+		}
+		else if(  st->marks.get_count() >= IL_MAX_MARKS  ||  (n >= 8  &&  strlen(f[7]) > IL_MAX_PART_TEXT)  ) {
+			error = "too many magnets";
+		}
+		else if(  world()->lookup(pos) == NULL  ) {
+			error = "no track at this position";
+		}
+		else {
+			il_mark_t *m = new il_mark_t();
+			m->id = next_id++;
+			m->pos = pos;
+			m->kind = (uint8)f[5][0];
+			m->color = (uint8)atoi(f[6]);
+			m->owner = player ? player->get_player_nr() : 1;
+			m->month = (uint32)world()->get_current_month();
+			m->text = n >= 8 ? f[7] : "";
+			st->marks.append(m);
+		}
+	}
+	else if(  strcmp(cmd, "mk_del") == 0  &&  n >= 3  ) {
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const uint16 id = (uint16)atoi(f[2]);
+		bool found = false;
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			for(  uint32 i = 0;  i < st->marks.get_count();  i++  ) {
+				if(  st->marks[i]->id == id  ) {
+					delete st->marks[i];
+					st->marks.remove_at(i);
+					found = true;
+					break;
+				}
+			}
+			if(  !found  ) {
+				error = "magnet not found";
+			}
+		}
+	}
 	else if(  strcmp(cmd, "st_rescan") == 0  &&  n >= 2  ) {
 		// the track was rebuilt in the game: follow it (配線を読み直す)
 		il_station_t *st = find_station((uint16)atoi(f[1]));
@@ -1346,6 +1407,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		else if(  !may_operate(st, player)  ) {
 			error = "not owner";
 		}
+		else if(  f[5][0] != 'N'  &&  stop_mark_at(pos)  ) {
+			error = "out of use (magnet)";
+		}
 		else {
 			error = cmd_signal_lever(st, pos, f[5][0], n >= 7  &&  f[6][0] == 'S' ? 1 : 0);
 		}
@@ -1374,7 +1438,20 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			error = "not owner";
 		}
 		else {
-			error = cmd_points(st, f[2]);
+			// points with a magnet "out of use" stay as they are
+			for(  const char *p = f[2];  p  &&  *p  &&  !error;  ) {
+				int x, y, z;
+				if(  sscanf(p, "%d:%d:%d", &x, &y, &z) == 3  &&  stop_mark_at(koord3d((sint16)x, (sint16)y, (sint8)z))  ) {
+					error = "out of use (magnet)";
+				}
+				p = strchr(p, ';');
+				if(  p  ) {
+					p++;
+				}
+			}
+			if(  !error  ) {
+				error = cmd_points(st, f[2]);
+			}
 		}
 	}
 	else if(  strcmp(cmd, "name_set") == 0  &&  n >= 5  ) {
@@ -1525,6 +1602,12 @@ const char *interlocking_manager_t::cmd_set(il_route_t *r)
 {
 	if(  r->state != IL_IDLE  ) {
 		return "route is not idle";
+	}
+	// a magnet "out of use" (使用停止) on the start lever or on a tile of the route
+	FOR(vector_tpl<koord3d>, const &t, r->tiles) {
+		if(  stop_mark_at(t)  ) {
+			return "out of use (magnet)";
+		}
 	}
 	// conflicting routes: any other route that is set and shares a tile
 	FOR(vector_tpl<il_route_t *>, o, routes) {
@@ -1788,6 +1871,19 @@ const char *interlocking_manager_t::check_path(const il_station_t *st, const vec
 }
 
 
+const il_mark_t *interlocking_manager_t::stop_mark_at(koord3d pos) const
+{
+	FOR(vector_tpl<il_station_t *>, st, stations) {
+		FOR(vector_tpl<il_mark_t *>, m, st->marks) {
+			if(  m->kind == 'X'  &&  m->pos == pos  ) {
+				return m;
+			}
+		}
+	}
+	return NULL;
+}
+
+
 /// parts of a custom panel: "T/x1/y1/x2/y2/flags/x:y:z+x:y:z/text;..." (the text is encoded by the panel)
 const char *interlocking_manager_t::parse_parts(const char *s, vector_tpl<il_part_t *> &out) const
 {
@@ -1814,7 +1910,7 @@ const char *interlocking_manager_t::parse_parts(const char *s, vector_tpl<il_par
 			}
 			*p++ = 0;
 		}
-		if(  nf < 7  ||  !strchr("TSPDHL", fld[0][0])  ||  out.get_count() >= IL_MAX_PARTS  ) {
+		if(  nf < 7  ||  !strchr("TSPDHLAFCKY", fld[0][0])  ||  out.get_count() >= IL_MAX_PARTS  ) {
 			return "bad panel part";
 		}
 		il_part_t *pt = new il_part_t();
@@ -1997,8 +2093,17 @@ void interlocking_manager_t::rescan_station(il_station_t *st)
 			siding_gone++;
 		}
 	}
-	ev.printf(",\"signals_removed\":%u,\"departures_removed\":%u,\"departures_moved\":%u,\"levers_removed\":%u,\"sidings_removed\":%u",
-		sig_gone, dep_gone, dep_moved, lever_gone, siding_gone);
+	// 4b. magnets and memos on track that is gone
+	uint32 marks_gone = 0;
+	for(  uint32 i = st->marks.get_count();  i-- > 0;  ) {
+		if(  get_rail(st->marks[i]->pos) == NULL  ) {
+			delete st->marks[i];
+			st->marks.remove_at(i);
+			marks_gone++;
+		}
+	}
+	ev.printf(",\"signals_removed\":%u,\"departures_removed\":%u,\"departures_moved\":%u,\"levers_removed\":%u,\"sidings_removed\":%u,\"marks_removed\":%u",
+		sig_gone, dep_gone, dep_moved, lever_gone, siding_gone, marks_gone);
 
 	// 5. routes: removed with their start point; along the track as it is now, else between the same ends
 	cbuffer_t rerouted, broken, removed;
@@ -2649,7 +2754,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 13
+#define IL_BLOCK_VERSION 14
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -2829,6 +2934,26 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 				}
 			}
 		}
+		if(  version >= 14  ) {
+			uint32 nm = st->marks.get_count();
+			b.rdwr_long(nm);
+			for(  uint32 j = 0;  j < nm  &&  j < IL_MAX_MARKS  &&  !b.broken;  j++  ) {
+				il_mark_t *m = b.loading ? new il_mark_t() : st->marks[j];
+				b.begin_section();
+				b.rdwr_short(m->id);
+				b.rdwr_pos(m->pos);
+				b.rdwr_byte(m->kind);
+				b.rdwr_byte(m->color);
+				b.rdwr_byte(m->owner);
+				b.rdwr_long(m->month);
+				b.rdwr_str(m->text);
+				future_fields(b);
+				b.end_section();
+				if(  b.loading  ) {
+					st->marks.append(m);
+				}
+			}
+		}
 		future_fields(b);
 		b.end_section();
 		if(  b.loading  ) {
@@ -2915,6 +3040,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		for(  uint32 i = 0;  i < st->area_pos.get_count();  i++  ) {
 			st->area_pos[i].rotate90(y_size);
 		}
+		FOR(vector_tpl<il_mark_t *>, m, st->marks) {
+			m->pos.rotate90(y_size);
+		}
 		// the custom panel keeps its drawing, only the tiles it stands for turn with the map
 		FOR(vector_tpl<il_part_t *>, pt, st->parts) {
 			FOR(vector_tpl<koord3d>, &t, pt->bind) {
@@ -2970,7 +3098,11 @@ void interlocking_manager_t::get_panel_json(cbuffer_t &buf, uint16 station) cons
 
 void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 {
-	buf.append("{\"type\":\"status\",\"stations\":[");
+	// the game time for the clock of a custom panel
+	buf.append("{\"type\":\"status\",\"date\":");
+	append_json_string(buf, world() ? tick_to_string(world()->get_ticks()) : "");
+	buf.printf(",\"month\":%u", world() ? (uint32)world()->get_current_month() : 0u);
+	buf.append(",\"stations\":[");
 	bool first = true;
 	FOR(vector_tpl<il_station_t *>, st, stations) {
 		buf.append(first ? "" : ",");
@@ -3009,6 +3141,16 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.printf(",\"color\":\"%c\"}", st->shunt_col[i]);
 		}
 		buf.printf("],\"parts\":%u,\"parts_rev\":%u", st->parts.get_count(), st->parts_rev);
+		buf.append(",\"marks\":[");
+		for(  uint32 i = 0;  i < st->marks.get_count();  i++  ) {
+			const il_mark_t *m = st->marks[i];
+			buf.printf("%s{\"id\":%u,\"pos\":", i ? "," : "", m->id);
+			append_json_pos(buf, m->pos);
+			buf.printf(",\"k\":\"%c\",\"c\":%u,\"o\":%u,\"m\":%u,\"s\":", m->kind, m->color, m->owner, m->month);
+			append_json_string(buf, m->text.c_str());
+			buf.append("}");
+		}
+		buf.append("]");
 		buf.append(",\"areas\":[");
 		for(  uint32 i = 0;  i < st->area_names.get_count();  i++  ) {
 			if(  i  ) {

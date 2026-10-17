@@ -1,10 +1,15 @@
 // TID interlocking panel: custom panel of a station (カスタム盤)
 // The parts are stored in the game (saved with it, the same for everybody); the panel grid has 2 steps per tile.
 // Parts: T track (x1,y1)-(x2,y2) standing for the game tiles in b, S start lever (b[0], f=1 its shunting lever),
-// P point (b[0]), D destination button (b[0]), H platform (rectangle), L text. Texts are kept encoded (encodeURIComponent).
+// P point (b[0]), D destination button (b[0]), H platform (rectangle), L text, A arrow (至○○), F frame (f = colour),
+// C clock (game time), K compass, Y style of the panel (f: bits 0-1 orientation of the drawing, bits 4-6 colour of the panel).
+// Texts are kept encoded (encodeURIComponent).
 "use strict";
 
 const customPanels = new Map();   // station id -> { rev, parts }
+const PANEL_COLORS = [["標準", "transparent"], ["緑盤", "#203a2c"], ["灰盤", "#3b4044"], ["紺", "#1b2a44"], ["黒", "#07090c"]];
+const FRAME_COLORS = ["#4a90d9", "#e0a100", "#3fbf6f", "#e0603a", "#a06ee0"];
+const styleOf = (parts) => parts.find(p => p.t === "Y") || { f: 0 };
 let cpEdit = null;                // editing: { parts, sel, tool }
 let cpFetching = 0;
 
@@ -130,10 +135,13 @@ function makeDraft(st) {
 	layout.sidings.forEach((sd) => dest(sd.tiles.slice().sort((a, b) => Math.hypot(b.p[0] - sd.anchor.p[0], b.p[1] - sd.anchor.p[1]) - Math.hypot(a.p[0] - sd.anchor.p[0], a.p[1] - sd.anchor.p[1]))[0]));
 	layout.exits.forEach((x) => { const [dx, dy] = SV(x.dir); dest(x.tile, dx * 2, dy * 2); });
 	for (const t of layout.depots) dest(t, 0, -1);
+	// the style of the panel: the orientation of the drawing (for the compass)
+	parts.push({ t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], f: rot & 3 });
 	// normalize: the panel starts at (2,2)
-	const xs = parts.flatMap(p => [p.x1, p.x2]), ys = parts.flatMap(p => [p.y1, p.y2]);
+	const placed = parts.filter(p => p.t !== "Y");
+	const xs = placed.flatMap(p => [p.x1, p.x2]), ys = placed.flatMap(p => [p.y1, p.y2]);
 	const ox = 2 - Math.min(...xs), oy = 2 - Math.min(...ys);
-	for (const p of parts) { p.x1 += ox; p.x2 += ox; p.y1 += oy; p.y2 += oy; }
+	for (const p of placed) { p.x1 += ox; p.x2 += ox; p.y1 += oy; p.y2 += oy; }
 	return parts;
 }
 
@@ -186,7 +194,8 @@ function renderCustom() {
 	svg.style.display = "block";
 	const parts = cpEdit ? cpEdit.parts : (customOf(st) || { parts: [] }).parts;
 	const wrap = document.getElementById("mapwrap");
-	const xs = parts.flatMap(p => [p.x1, p.x2]), ys = parts.flatMap(p => [p.y1, p.y2]);
+	const placed = parts.filter(p => p.t !== "Y");
+	const xs = placed.flatMap(p => [p.x1, p.x2]), ys = placed.flatMap(p => [p.y1, p.y2]);
 	const GW = Math.max(8, (xs.length ? Math.max(...xs) : 8) + 2), GH = Math.max(6, (ys.length ? Math.max(...ys) : 6) + 2);
 	const fit = Math.floor(Math.min((wrap.clientWidth - 40) / GW, (wrap.clientHeight - 60) / GH));
 	const G = Math.max(6, Math.round(Math.max(8, Math.min(30, fit || 17)) * zoom));   // pixels per grid step
@@ -194,6 +203,9 @@ function renderCustom() {
 	const sc = CELL / 34;
 	svg.setAttribute("width", GW * G + 40); svg.setAttribute("height", GH * G + 40);
 	svg.innerHTML = "";
+	const style = styleOf(parts);
+	const bg = PANEL_COLORS[(style.f >> 4) % PANEL_COLORS.length][1];
+	if (bg !== "transparent") el("rect", { x: 4, y: 4, width: GW * G + 32, height: GH * G + 32, rx: 10, fill: bg, stroke: "#0006", "stroke-width": 3 }, svg);
 	const g = el("g", { transform: "translate(20,20)" }, svg);
 	const X = (v) => v * G, Y = (v) => v * G;
 	if (cpEdit) {
@@ -204,10 +216,11 @@ function renderCustom() {
 	const locked = routeStateOfTiles();
 	const start = !cpEdit && tab === "run" ? currentStart() : null;
 	const dests = start ? findDestinations(start) : new Map();
-	const order = { H: 0, T: 1, P: 2, D: 3, S: 4, L: 5 };
+	const order = { Y: -2, F: -1, H: 0, T: 1, P: 2, D: 3, S: 4, L: 5, A: 5, C: 5, K: 5 };
 	const idx = parts.map((p, i) => i).sort((a, b) => order[parts[a].t] - order[parts[b].t]);
 	for (const i of idx) {
 		const p = parts[i];
+		if (p.t === "Y") continue;   // the style is not drawn
 		const bad = unbound(st, p);
 		const grp = el("g", { class: (cpEdit ? "cpart" : "") + (cpEdit && cpEdit.sel === i ? " sel" : ""), "data-part": i }, g);
 		if (p.t === "H") {
@@ -248,6 +261,37 @@ function renderCustom() {
 		else if (p.t === "L") {
 			el("text", { x: X(p.x1), y: Y(p.y1), "font-size": Math.max(10, 12 * sc), fill: "#e8edf5", "text-anchor": "middle", "dominant-baseline": "middle" }, grp).textContent = partText(p) || "（文字）";
 		}
+		else if (p.t === "A") {
+			// an arrow with "至 ○○" at its tail
+			const x1 = X(p.x1), y1 = Y(p.y1), x2 = X(p.x2), y2 = Y(p.y2);
+			const ang = Math.atan2(y2 - y1, x2 - x1), hl = 9 * sc;
+			el("line", { x1, y1, x2, y2, stroke: "#e8edf5", "stroke-width": 2.5 * sc }, grp);
+			el("polygon", { points: `${x2},${y2} ${x2 - hl * Math.cos(ang - .45)},${y2 - hl * Math.sin(ang - .45)} ${x2 - hl * Math.cos(ang + .45)},${y2 - hl * Math.sin(ang + .45)}`, fill: "#e8edf5" }, grp);
+			if (p.s) el("text", { x: x1 - Math.cos(ang) * 6, y: y1 - Math.sin(ang) * 6 + 4, "font-size": Math.max(10, 12 * sc), fill: "#e8edf5", "text-anchor": Math.cos(ang) >= 0 ? "end" : "start" }, grp).textContent = partText(p);
+			if (cpEdit) el("line", { x1, y1, x2, y2, stroke: "transparent", "stroke-width": 14 }, grp);
+		}
+		else if (p.t === "F") {
+			// a frame around an area of the panel (e.g. an operating area), its name at the top left
+			const c = FRAME_COLORS[(p.f || 0) % FRAME_COLORS.length];
+			const x = X(Math.min(p.x1, p.x2)), y = Y(Math.min(p.y1, p.y2));
+			el("rect", { x, y, width: Math.abs(X(p.x2 - p.x1)), height: Math.abs(Y(p.y2 - p.y1)), rx: 6, fill: c, "fill-opacity": .08, stroke: c, "stroke-width": 2, "stroke-dasharray": "8 4" }, grp);
+			if (p.s) el("text", { x: x + 6, y: y + 14, "font-size": 11, "font-weight": 700, fill: c }, grp).textContent = partText(p);
+		}
+		else if (p.t === "C") {
+			const txt = status.date || "--:--";
+			const w = [...txt].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
+			el("rect", { x: X(p.x1) - w / 2, y: Y(p.y1) - 12, width: w, height: 24, rx: 4, fill: "#05080a", stroke: "#3a4558" }, grp);
+			el("text", { x: X(p.x1), y: Y(p.y1) + 5, "font-size": 13, "font-family": "monospace", fill: "#7CFC8A", "text-anchor": "middle" }, grp).textContent = txt;
+		}
+		else if (p.t === "K") {
+			// north as the track plan was turned when the panel was drafted
+			const deg = (style.f & 3) * 90, x = X(p.x1), y = Y(p.y1), r = 14;
+			el("circle", { cx: x, cy: y, r, fill: "#141a24", stroke: "#3a4558" }, grp);
+			const k = el("g", { transform: `rotate(${deg} ${x} ${y})` }, grp);
+			el("polygon", { points: `${x},${y - r + 3} ${x + 4},${y} ${x - 4},${y}`, fill: "#ff5a5f" }, k);
+			el("polygon", { points: `${x},${y + r - 3} ${x + 4},${y} ${x - 4},${y}`, fill: "#8a94a3" }, k);
+			el("text", { x, y: y - r - 3, "font-size": 10, fill: "#cfd6e0", "text-anchor": "middle" }, grp).textContent = "北";
+		}
 	}
 	// handles of the selected part on top of everything
 	if (cpEdit && parts[cpEdit.sel]) drawHandles(g, parts[cpEdit.sel], X, Y);
@@ -260,6 +304,23 @@ function renderCustom() {
 		el("circle", { cx: X(at[0]), cy: Y(at[1]), r: 8, fill: d.free ? "var(--yellow)" : "#e6e3d8", stroke: "#11151b" }, grp);
 		el("text", { x: X(at[0]), y: Y(at[1]) + 20, "font-size": 11, fill: "var(--yellow)", "text-anchor": "middle" }, grp).textContent = d.label;
 		grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); });
+	}
+	// magnets and memos: at the lever / point / destination of their tile, else along the track line
+	if (!cpEdit && tab === "run") {
+		const placeOf = (pos) => {
+			const k = key(pos);
+			const p = parts.find(q => "SPD".includes(q.t) && q.b && q.b[0] && key(q.b[0]) === k);
+			if (p) return [X(p.x1), Y(p.y1)];
+			const at = gridOfTile(parts, k);
+			return at ? [X(at[0]), Y(at[1])] : null;
+		};
+		drawMarks(g, st, placeOf, sc);
+		const targets = [];
+		for (const p of parts) {
+			if ("SP".includes(p.t) && p.b && p.b[0]) targets.push([p.b[0], X(p.x1), Y(p.y1)]);
+			if (p.t === "T") (p.b || []).forEach((t, i) => { const f = p.b.length > 1 ? i / (p.b.length - 1) : .5; targets.push([t, X(p.x1 + (p.x2 - p.x1) * f), Y(p.y1 + (p.y2 - p.y1) * f)]); });
+		}
+		drawMarkTargets(g, targets, sc);
 	}
 	if (cpEdit) bindEditor(svg, g, G);
 }
@@ -312,7 +373,7 @@ function drawStart(grp, st, p, x, y, sc, bad) {
 // ---------------------------------------------------------------------------
 function drawHandles(g, p, X, Y) {
 	const h = (x, y, which) => el("rect", { x: X(x) - 5, y: Y(y) - 5, width: 10, height: 10, fill: "var(--yellow)", stroke: "#000", class: "cphandle", "data-h": which }, g);
-	if (p.t === "T" || p.t === "H") { h(p.x1, p.y1, 1); h(p.x2, p.y2, 2); }
+	if ("THAF".includes(p.t)) { h(p.x1, p.y1, 1); h(p.x2, p.y2, 2); }
 }
 function startEdit(st) {
 	const c = customOf(st);
@@ -328,9 +389,16 @@ function bindEditor(svg, g, G) {
 	svg.onmousedown = (e) => {
 		const h = e.target.closest(".cphandle"), pt = e.target.closest("[data-part]");
 		const at = toGrid(e);
-		if (cpEdit.tool === "text" && !pt && !h) {
-			const s = prompt("盤に書く文字", "");
-			if (s) { cpEdit.parts.push({ t: "L", x1: at[0], y1: at[1], x2: at[0], y2: at[1], b: [], s: encodeURIComponent(s) }); cpEdit.sel = cpEdit.parts.length - 1; cpEdit.dirty = true; }
+		if (cpEdit.tool && !pt && !h) {
+			const t = cpEdit.tool === "text" ? "L" : cpEdit.tool;
+			const ask = { L: ["盤に書く文字", ""], A: ["矢印に添える文字（例：至 ○○）", "至 "], F: ["区画の名前（例：東扱い）", ""] }[t];
+			const s = ask ? prompt(ask[0], ask[1]) : "";
+			if (s !== null && (t !== "L" || s)) {
+				const [x, y] = at;
+				const size = { A: [4, 0], F: [10, 6] }[t] || [0, 0];
+				cpEdit.parts.push({ t, x1: x, y1: y, x2: x + size[0], y2: y + size[1], b: [], s: encodeURIComponent(s || ""), f: 0 });
+				cpEdit.sel = cpEdit.parts.length - 1; cpEdit.dirty = true;
+			}
 			cpEdit.tool = null;
 			render();
 			return;
@@ -358,7 +426,7 @@ function bindEditor(svg, g, G) {
 		const pt = e.target.closest("[data-part]");
 		if (!pt) return;
 		const p = cpEdit.parts[Number(pt.dataset.part)];
-		if (!"LDH".includes(p.t)) return;
+		if (!"LDHAF".includes(p.t)) return;
 		const s = prompt(p.t === "D" ? "着点ボタンの名前（空欄＝自動）" : "文字", partText(p));
 		if (s === null) return;
 		p.s = encodeURIComponent(s);
@@ -380,21 +448,48 @@ document.addEventListener("keydown", (e) => {
 // buttons of the view bar for the custom panel
 function customBarHtml(st) {
 	if (!st) return "";
-	if (cpEdit) return `<span class="cpedit">カスタム盤を編集中</span><button data-cp="text" class="${cpEdit.tool === "text" ? "on" : ""}" title="押してから盤の空いた所を押すと文字を置きます">文字を追加</button>
+	if (cpEdit) {
+		const sel = cpEdit.parts[cpEdit.sel];
+		const style = styleOf(cpEdit.parts);
+		const add = (t, label, title) => `<button data-cp="add" data-t="${t}" class="${cpEdit.tool === t ? "on" : ""}" title="${title}（押してから盤の空いた所を押す）">${label}</button>`;
+		return `<span class="cpedit">カスタム盤を編集中</span>${add("L", "文字", "盤に文字を書く")}${add("A", "矢印", "「至 ○○」の矢印")}${add("F", "区画", "区画の枠（扱い区分など）")}${add("C", "時計", "ゲームの日時")}${add("K", "方位", "北の向き")}
+		<select data-cp="color" title="盤の色">${PANEL_COLORS.map((c, i) => `<option value="${i}" ${(style.f >> 4) % PANEL_COLORS.length === i ? "selected" : ""}>盤：${c[0]}</option>`).join("")}</select>
+		${sel && sel.t === "F" ? FRAME_COLORS.map((c, i) => `<button data-cp="fcolor" data-c="${i}" class="swatch ${(sel.f || 0) === i ? "on" : ""}" style="background:${c}" title="枠の色"></button>`).join("") : ""}` + `
 		<button data-cp="del" ${cpEdit.sel < 0 ? "disabled" : ""} title="選んだ部品を消す（Delete キー）">削除</button>
 		<button data-cp="draft" title="今の略図から下書きを作り直す（編集した内容は消えます）">下書きを作り直す</button>
 		<button data-cp="apply" class="primary" title="ゲームに保存して全員の盤に反映する">適用</button><button data-cp="cancel">やめる</button>`;
+	}
 	const has = !!customOf(st);
 	const on = customView(st);
 	return (has ? `<button data-cp="auto" class="${on ? "" : "on"}" title="ゲームの配線をそのまま描いた略図">略図</button><button data-cp="custom" class="${on ? "on" : ""}" title="この駅のカスタム盤">カスタム盤</button>` : "")
 		+ `<button data-cp="edit" title="${has ? "カスタム盤を編集する" : "今の略図から下書きを作り、カスタム盤を作る"}">${has ? "盤を編集" : "カスタム盤を作る"}</button>`;
+}
+// the colour of the whole panel (style part)
+function customBarChange(s) {
+	if (!cpEdit || s.dataset.cp !== "color") return;
+	let y = cpEdit.parts.find(p => p.t === "Y");
+	if (!y) { y = { t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], s: "", f: viewRot() & 3 }; cpEdit.parts.push(y); }
+	y.f = (y.f & 15) | (Number(s.value) << 4);
+	cpEdit.dirty = true;
+	render();
 }
 async function customBarClick(b) {
 	const st = station();
 	const c = b.dataset.cp;
 	if (c === "auto" || c === "custom") setCustomView(st, c === "custom");
 	else if (c === "edit") startEdit(st);
-	else if (c === "text") { cpEdit.tool = cpEdit.tool === "text" ? null : "text"; render(); }
+	else if (c === "add") {
+		const t = b.dataset.t;
+		if (t === "C" || t === "K") {
+			// clock and compass: placed at the top left, to be moved
+			const x = t === "K" ? 1 : 6;
+			cpEdit.parts.push({ t, x1: x, y1: 1, x2: x, y2: 1, b: [], s: "", f: 0 });
+			cpEdit.sel = cpEdit.parts.length - 1; cpEdit.dirty = true; cpEdit.tool = null;
+		}
+		else cpEdit.tool = cpEdit.tool === t ? null : t;
+		render();
+	}
+	else if (c === "fcolor" && cpEdit.parts[cpEdit.sel]) { cpEdit.parts[cpEdit.sel].f = Number(b.dataset.c); cpEdit.dirty = true; render(); }
 	else if (c === "del" && cpEdit.sel >= 0) { cpEdit.parts.splice(cpEdit.sel, 1); cpEdit.sel = -1; cpEdit.dirty = true; render(); }
 	else if (c === "draft") {
 		if (!confirm("今の略図から下書きを作り直しますか？編集した内容は消えます。")) return;

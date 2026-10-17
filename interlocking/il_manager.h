@@ -102,12 +102,24 @@ struct il_point_t {
 /// a part of the custom panel of a station (カスタム盤): position on the panel grid (2 per tile),
 /// the game tiles it stands for (track, start point, point, destination) and a text (encoded by the panel)
 struct il_part_t {
-	uint8 type;                 ///< 'T' track, 'S' start lever, 'P' point, 'D' destination, 'H' platform, 'L' text
+	uint8 type;                 ///< 'T' track, 'S' start lever, 'P' point, 'D' destination, 'H' platform, 'L' text, 'A' arrow, 'F' frame, 'C' clock, 'K' compass, 'Y' style of the panel
 	sint16 x1, y1, x2, y2;
 	uint8 flags;                ///< 'S': 1 = the shunting lever of the start point
 	vector_tpl<koord3d> bind;
 	plainstring text;
 	il_part_t() : type(0), x1(0), y1(0), x2(0), y2(0), flags(0) {}
+};
+
+/// a magnet or a memo on the panel (マグネット・メモ), at a game tile (track, start point or point)
+struct il_mark_t {
+	uint16 id;
+	koord3d pos;
+	uint8 kind;        ///< 'X' out of use (使用停止: no route over it, the lever / point cannot be used), 'M' a tag, 'O' a memo
+	uint8 color;       ///< colour of a tag (index of the panel's palette)
+	uint8 owner;       ///< company that put it there
+	uint32 month;      ///< game month when it was put there
+	plainstring text;  ///< encoded by the panel
+	il_mark_t() : id(0), kind(0), color(0), owner(0), month(0) {}
 };
 
 /// one interlocked station (the unit of one panel)
@@ -157,10 +169,12 @@ struct il_station_t {
 	uint8 area_of(koord3d pos) const;
 	/// custom panel (カスタム盤); empty = the panel draws the track plan by itself
 	vector_tpl<il_part_t *> parts;
+	/// magnets and memos (マグネット・メモ)
+	vector_tpl<il_mark_t *> marks;
 	uint32 parts_rev;   ///< changes with every change of the parts (not saved): the panel fetches them again
 
 	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0) {}
-	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); clear_ptr_vector(parts); }
+	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); clear_ptr_vector(parts); clear_ptr_vector(marks); }
 	il_slever_t *find_slever(koord3d pos, sint8 lever = -1) const;
 	il_point_t *find_point(koord3d pos) const;
 };
@@ -285,6 +299,8 @@ private:
 	const char *check_path(const il_station_t *st, const vector_tpl<koord3d> &tiles) const;
 	/// re-reads the track of a station after it was rebuilt in the game (配線を読み直す); summary as an event
 	void rescan_station(il_station_t *st);
+	/// a magnet "out of use" (使用停止) lies on this tile (of any station)
+	const il_mark_t *stop_mark_at(koord3d pos) const;
 	/// parts of a custom panel as sent by the panel (cp_add)
 	const char *parse_parts(const char *s, vector_tpl<il_part_t *> &out) const;
 	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);

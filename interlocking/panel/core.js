@@ -60,6 +60,12 @@ const ERRORS = {
 	"the signal already has a lever pair": "その信号は、すでにほかの信号とまとめてあります",
 	"no lever pair": "まとめてあるてこではありません",
 	"another lever is waiting for its destination": "ほかの信号てこが着点待ちです。先に着点ボタンを押すか、そのてこを定位に戻してください",
+	"out of use (magnet)": "使用停止のマグネットが貼られています（はがすと扱えます）",
+	"magnet not found": "そのマグネット・メモはもうありません",
+	"too many magnets": "マグネット・メモが多すぎます（文字が長すぎることもあります）",
+	"unknown kind of magnet": "マグネットの種類が分かりません",
+	"upload of the panel was interrupted": "カスタム盤の送信が途中で途切れました。もう一度「適用」を押してください",
+	"bad panel part": "カスタム盤の部品が読めません",
 };
 const tr = (e) => {
 	if (e === "not owner") {
@@ -388,6 +394,7 @@ function renderViewbar() {
 	if (bar.dataset.html === html) return;
 	bar.dataset.html = html;
 	bar.innerHTML = html;
+	for (const s of bar.querySelectorAll("select[data-cp]")) s.addEventListener("change", () => customBarChange(s));
 	for (const b of bar.querySelectorAll("button")) b.addEventListener("click", () => {
 		if (b.dataset.cp) { customBarClick(b); return; }
 		if (b.dataset.zoom) {

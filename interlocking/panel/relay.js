@@ -155,6 +155,7 @@ function rescanSummary(ev) {
 	if (ev.departures_moved) out.push(`番線の端が変わった出発点 ${ev.departures_moved} 個を移した`);
 	if (ev.levers_removed) out.push(`なくなったポイントの転てつてこ ${ev.levers_removed} 本を外した`);
 	if (ev.sidings_removed) out.push(`なくなった留置線の駅 ${ev.sidings_removed} 個を外した`);
+	if (ev.marks_removed) out.push(`線路がなくなったマグネット・メモ ${ev.marks_removed} 枚をはがした`);
 	if (ev.routes_rerouted.length) out.push(`進路を今の線路で引き直した：${ev.routes_rerouted.join("・")}`);
 	if (ev.routes_removed.length) out.push(`始点がなくなった進路を消した：${ev.routes_removed.join("・")}`);
 	if (ev.routes_broken.length) out.push(`通れなくなった進路（作り直してください）：${ev.routes_broken.join("・")}`);
