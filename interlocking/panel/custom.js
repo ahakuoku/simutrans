@@ -35,7 +35,7 @@ function customOf(st) {
 }
 // the custom panel is shown (this browser's choice, the custom panel when the station has one)
 function customView(st) {
-	if (cpEdit) return true;
+	if (cpEdit) return !cpEdit.pick;   // picking game tiles for a part: on the track plan
 	if (!st || !st.parts || localStore("custom." + st.id) === "0") return false;
 	return !!customOf(st);
 }
@@ -400,6 +400,15 @@ function bindEditor(svg, g, G) {
 		const at = toGrid(e);
 		if (cpEdit.tool && !pt && !h) {
 			const t = cpEdit.tool === "text" ? "L" : cpEdit.tool;
+			if ("TSPD".includes(t)) {
+				// a part that stands for something in the game: placed, then its tiles are chosen on the track plan
+				const [x, y] = at;
+				cpEdit.parts.push({ t, x1: x, y1: y, x2: t === "T" ? x + 4 : x, y2: y, b: [], s: "", f: 0 });
+				cpEdit.sel = cpEdit.parts.length - 1; cpEdit.dirty = true; cpEdit.tool = null;
+				cpEdit.pick = { index: cpEdit.sel, orig: [] };
+				render();
+				return;
+			}
 			const ask = { L: ["盤に書く文字", ""], A: ["矢印に添える文字（例：至 ○○）", "至 "], F: ["区画の名前（例：東扱い）", ""] }[t];
 			const s = ask ? prompt(ask[0], ask[1]) : "";
 			if (s !== null && (t !== "L" || s)) {
@@ -454,18 +463,96 @@ document.addEventListener("keydown", (e) => {
 	}
 });
 
+// picking game tiles for a part on the track plan: rings for the tiles it stands for, orange for track no line stands for
+function drawPickTargets(g, st, tiles, cx, cy, sc) {
+	if (!cpEdit || !cpEdit.pick) return;
+	const p = cpEdit.parts[cpEdit.pick.index];
+	if (!p) return;
+	const bound = new Set((p.b || []).map(key));
+	const covered = new Set(cpEdit.parts.filter(q => q.t === "T").flatMap(q => (q.b || []).map(key)));
+	const starts = new Set(st.signals.map(s => key(s.pos)).concat((st.departures || []).map(d => key(d.pos))));
+	const points = new Set(layout.points.map(pt => key(pt.t.p)));
+	const ok = (t) => p.t === "S" ? starts.has(key(t.p)) : p.t === "P" ? points.has(key(t.p)) : p.t === "D" ? !!destIdOf({ b: [t.p] }) : p.t === "H" ? !!t.h : true;
+	for (const t of tiles) {
+		if (!isVisible(t) || !t.r) continue;
+		const k = key(t.p);
+		if (!covered.has(k)) el("circle", { cx: cx(t.p), cy: cy(t.p), r: 11 * sc, fill: "none", stroke: "#ffb347", "stroke-width": 2, "pointer-events": "none" }, g);
+		if (!ok(t)) continue;
+		const c = el("circle", { cx: cx(t.p), cy: cy(t.p), r: 10 * sc, fill: bound.has(k) ? "rgba(255,224,102,.6)" : "rgba(255,224,102,.12)", stroke: "var(--yellow)", "stroke-width": bound.has(k) ? 3 : 2, "stroke-dasharray": bound.has(k) ? "" : "4 3", class: "clickable picktarget", "data-pick": k }, g);
+		c.appendChild(el("title", {})).textContent = `(${t.p.join(", ")})` + (bound.has(k) ? " 結びついている（押すと外す）" : " 押すと結ぶ");
+		c.addEventListener("click", (e) => {
+			e.stopPropagation();
+			if ("TH".includes(p.t)) {
+				p.b = bound.has(k) ? p.b.filter(x => key(x) !== k) : (p.b || []).concat([t.p]);
+				render();
+			}
+			else {
+				p.b = [t.p];
+				cpEdit.pick = null;
+				cpEdit.dirty = true;
+				render();
+			}
+		});
+	}
+}
+
+// export to a file / import from one (the tiles are kept: in another game or station parts may no longer match)
+function exportPanel(st, parts) {
+	const data = JSON.stringify({ format: "tid-custom-panel", version: 1, station: st.name, parts }, null, 1);
+	const a = document.createElement("a");
+	a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+	a.download = `custom-panel-${String(st.name).replace(/[\\/:*?"<>|]/g, "_")}.json`;
+	document.body.appendChild(a);
+	a.click();
+	setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+function importPanel() {
+	const inp = document.createElement("input");
+	inp.type = "file";
+	inp.accept = ".json,application/json";
+	inp.addEventListener("change", async () => {
+		const f = inp.files[0];
+		if (!f) return;
+		try {
+			const d = JSON.parse(await f.text());
+			if (d.format !== "tid-custom-panel" || !Array.isArray(d.parts)) throw new Error("カスタム盤のファイルではありません");
+			const parts = d.parts.filter(p => p && "TSPDHLAFCKY".includes(p.t)).map(p => ({ t: p.t, x1: p.x1 | 0, y1: p.y1 | 0, x2: p.x2 | 0, y2: p.y2 | 0, f: p.f | 0,
+				b: (p.b || []).filter(x => Array.isArray(x) && x.length === 3).map(x => x.map(Number)), s: String(p.s || "") }));
+			if (!confirm(`「${d.station || "?"}」のカスタム盤（部品 ${parts.length} 個）を読み込みますか？今の編集内容と置き換わります。`)) return;
+			cpEdit.parts = parts; cpEdit.sel = -1; cpEdit.dirty = true;
+			render();
+			const bad = parts.filter(p => unbound(station(), p)).length;
+			toast(bad ? `読み込みました。配線と合わない部品が ${bad} 個あります（「合わない部品」で選んで結び直してください）` : "読み込みました。「適用」で保存します");
+		} catch (e) { toast("読み込めませんでした: " + e.message, true); }
+	});
+	inp.click();
+}
+
 // buttons of the view bar for the custom panel
 function customBarHtml(st) {
 	if (!st) return "";
+	if (cpEdit && cpEdit.pick) {
+		const p = cpEdit.parts[cpEdit.pick.index];
+		const what = { T: "線路の線：結びつく線路を押す（もう一度押すと外す）", H: "番線：番線の線路を押す（もう一度押すと外す）", S: "てこ：信号・出発点を押す", P: "ポイント：ポイントを押す", D: "着点：番線・留置線・出口・車庫の線路を押す" }[p.t] || "";
+		return `<span class="cpedit">結び直し中</span><span class="hint">${what}。<b style="color:#ffb347">橙</b>＝どの線にも結びついていない線路</span>
+			<button data-cp="pickdone" class="primary">完了</button><button data-cp="pickcancel">やめる</button>`;
+	}
 	if (cpEdit) {
 		const sel = cpEdit.parts[cpEdit.sel];
 		const style = styleOf(cpEdit.parts);
+		const st0 = station();
+		const bad = cpEdit.parts.filter(p => unbound(st0, p)).length;
 		const add = (t, label, title) => `<button data-cp="add" data-t="${t}" class="${cpEdit.tool === t ? "on" : ""}" title="${title}（押してから盤の空いた所を押す）">${label}</button>`;
-		return `<span class="cpedit">カスタム盤を編集中</span>${add("L", "文字", "盤に文字を書く")}${add("A", "矢印", "「至 ○○」の矢印")}${add("F", "区画", "区画の枠（扱い区分など）")}${add("C", "時計", "ゲームの日時")}${add("K", "方位", "北の向き")}
+		const addf = (t, label, title) => `<button data-cp="add" data-t="${t}" class="${cpEdit.tool === t ? "on" : ""}" title="${title}（押してから盤の空いた所を押し、続けて結びつく線路などを選ぶ）">${label}</button>`;
+		return `<span class="cpedit">カスタム盤を編集中</span>${addf("T", "＋線路", "線路の線")}${addf("S", "＋てこ", "信号てこ")}${addf("P", "＋ポイント", "ポイント")}${addf("D", "＋着点", "着点ボタン")}<span class="sep"></span>${add("L", "文字", "盤に文字を書く")}${add("A", "矢印", "「至 ○○」の矢印")}${add("F", "区画", "区画の枠（扱い区分など）")}${add("C", "時計", "ゲームの日時")}${add("K", "方位", "北の向き")}
 		<select data-cp="color" title="盤の色">${PANEL_COLORS.map((c, i) => `<option value="${i}" ${(style.f >> 4) % PANEL_COLORS.length === i ? "selected" : ""}>盤：${c[0]}</option>`).join("")}</select>
 		${sel && sel.t === "F" ? FRAME_COLORS.map((c, i) => `<button data-cp="fcolor" data-c="${i}" class="swatch ${(sel.f || 0) === i ? "on" : ""}" style="background:${c}" title="枠の色"></button>`).join("") : ""}` + `
+		<span class="sep"></span>
+		<button data-cp="pick" ${sel && "TSPDH".includes(sel.t) ? "" : "disabled"} title="選んだ部品を、ゲームの線路・信号・ポイントに結び直す">結び直す</button>
+		<button data-cp="nextbad" ${bad ? "" : "disabled"} title="配線と合わなくなった部品（灰色の破線）を順に選ぶ">合わない部品 ${bad}</button>
 		<button data-cp="del" ${cpEdit.sel < 0 ? "disabled" : ""} title="選んだ部品を消す（Delete キー）">削除</button>
 		<button data-cp="draft" title="今の略図から下書きを作り直す（編集した内容は消えます）">下書きを作り直す</button>
+		<button data-cp="export" title="カスタム盤をファイルに書き出す">書き出し</button><button data-cp="import" title="書き出したファイルを読み込む（今の編集内容と置き換え）">読み込み</button>
 		<button data-cp="apply" class="primary" title="ゲームに保存して全員の盤に反映する">適用</button><button data-cp="cancel">やめる</button>`;
 	}
 	const has = !!customOf(st);
@@ -487,6 +574,19 @@ async function customBarClick(b) {
 	const c = b.dataset.cp;
 	if (c === "auto" || c === "custom") setCustomView(st, c === "custom");
 	else if (c === "edit") startEdit(st);
+	else if (c === "pick" && cpEdit.parts[cpEdit.sel]) {
+		cpEdit.pick = { index: cpEdit.sel, orig: JSON.parse(JSON.stringify(cpEdit.parts[cpEdit.sel].b || [])) };
+		render();
+	}
+	else if (c === "pickdone") { cpEdit.pick = null; cpEdit.dirty = true; render(); }
+	else if (c === "pickcancel") { cpEdit.parts[cpEdit.pick.index].b = cpEdit.pick.orig; cpEdit.pick = null; render(); }
+	else if (c === "nextbad") {
+		const bads = cpEdit.parts.map((p, i) => unbound(st, p) ? i : -1).filter(i => i >= 0);
+		cpEdit.sel = bads.find(i => i > cpEdit.sel) ?? bads[0] ?? -1;
+		render();
+	}
+	else if (c === "export") exportPanel(st, cpEdit.parts);
+	else if (c === "import") importPanel();
 	else if (c === "add") {
 		const t = b.dataset.t;
 		if (t === "C" || t === "K") {

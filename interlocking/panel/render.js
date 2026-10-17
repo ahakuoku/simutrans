@@ -298,8 +298,10 @@ function renderMap() {
 		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, hl.name, { "font-size": 11, fill: "#9fb3cf" });
 	}
 	placeLabels();
+	// choosing game tiles for a part of the custom panel
+	if (st && cpEdit && cpEdit.pick) drawPickTargets(g, st, tiles, cx, cy, sc);
 	// magnets and memos, and (with a tool chosen) where they can be put
-	if (st && tab === "run") {
+	else if (st && tab === "run") {
 		drawMarks(g, st, (p) => { const t = tileIndex.get(key(p)); return t && isVisible(t) ? [cx(t.p), cy(t.p)] : null; }, sc);
 		drawMarkTargets(g, tiles.filter(t => isVisible(t) && t.r).map(t => [t.p, cx(t.p), cy(t.p)]), sc);
 	}

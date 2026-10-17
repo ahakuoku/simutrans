@@ -171,6 +171,49 @@ try {
 	check(true, "the magnet is removed with はがす");
 	await page.click("#markBar [data-mtool=del]");
 
+	console.log("[8] rebinding (付け直し), a new track line, export and import");
+	await page.click("#viewbar button[data-cp=edit]");
+	await page.waitForSelector("#map .cpart");
+	// as if the track was rebuilt: the lever of S1 stands for a tile without a signal
+	await page.evaluate(() => { const p = cpEdit.parts.find(p => p.t === "S" && !p.f && p.b[0].join(",") === "3,5,0"); p.b = [[0, 0, 0]]; render(); });
+	await waitFor(async () => (await page.textContent("#viewbar button[data-cp=nextbad]")).includes("1"), 5000, "one part does not match");
+	check(true, "the part that no longer matches is counted (合わない部品 1)");
+	await page.click("#viewbar button[data-cp=nextbad]");
+	await page.click("#viewbar button[data-cp=pick]");
+	await page.waitForSelector("#map circle.picktarget[data-pick='3,5,0']");
+	const nTargets = await page.locator("#map circle.picktarget").count();
+	check(nTargets >= 2 && nTargets <= 4, `while rebinding a lever only start points can be chosen (${nTargets})`);
+	await page.screenshot({ path: path.join(shots, "custom_rebind.png") });
+	await page.click("#map circle.picktarget[data-pick='3,5,0']");
+	await waitFor(async () => (await page.textContent("#viewbar button[data-cp=nextbad]")).includes("0"), 5000, "matches again");
+	check(await page.evaluate(() => cpEdit.parts[cpEdit.sel].b[0].join(",") === "3,5,0" && !cpEdit.pick), "the lever stands for S1 again, back on the custom panel");
+	// a new track line, bound to two tiles
+	await page.click("#viewbar button[data-cp=add][data-t=T]");
+	const mb = await page.locator("#map").boundingBox();
+	await page.mouse.click(mb.x + 60, mb.y + mb.height - 60);
+	await page.waitForSelector("#map circle.picktarget[data-pick='6,5,0']");
+	await page.click("#map circle.picktarget[data-pick='6,5,0']");
+	await page.click("#map circle.picktarget[data-pick='7,5,0']");
+	await page.click("#viewbar button[data-cp=pickdone]");
+	const nl = await page.evaluate(() => cpEdit.parts[cpEdit.parts.length - 1]);
+	check(nl.t === "T" && nl.b.map(x => x.join(",")).join(" ") === "6,5,0 7,5,0" && nl.x2 === nl.x1 + 4, "a new track line placed and bound to (6,5) and (7,5)");
+	// export, then import the file back
+	const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#viewbar button[data-cp=export]")]);
+	const file = path.join(shots, "exported-panel.json");
+	await dl.saveAs(file);
+	const exported = JSON.parse(require("node:fs").readFileSync(file, "utf8"));
+	const nParts = await page.evaluate(() => cpEdit.parts.length);
+	check(exported.format === "tid-custom-panel" && exported.parts.length === nParts, `exported to a file (${exported.parts.length} parts)`);
+	exported.parts = exported.parts.filter(p => p.t !== "L");
+	require("node:fs").writeFileSync(file, JSON.stringify(exported));
+	const [fc] = await Promise.all([page.waitForEvent("filechooser"), page.click("#viewbar button[data-cp=import]")]);
+	await fc.setFiles(file);
+	await waitFor(async () => (await page.evaluate(() => cpEdit.parts.length)) === exported.parts.length, 5000, "imported");
+	check(await page.evaluate(() => !cpEdit.parts.some(p => p.t === "L")), "the file is read back into the editor");
+	await page.click("#viewbar button[data-cp=apply]");
+	await waitFor(async () => (await panel(sid)).parts.length === exported.parts.length, 10000, "saved");
+	check(true, "and saved");
+
 	console.log("[6] back to the track plan, and no custom panel any more");
 	await page.click("#viewbar button[data-cp=auto]");
 	await waitFor(async () => (await page.locator("#map [data-part]").count()) === 0, 5000, "track plan");
