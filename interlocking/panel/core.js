@@ -113,6 +113,10 @@ function viewRot() {
 	const st = station();
 	return st && st.kind === "relay" ? (st.rot || 0) & 3 : (viewOpt().rot || 0) & 3;
 }
+// where north is on the panel: 0 up, 1 right, 2 down, 3 left. Turning the map in the game turns the
+// coordinates: north (the -y of the original map) moves a quarter clockwise with each turn
+const worldRot = () => ((info && info.rot) || 0) & 3;
+const northDir = () => (viewRot() + worldRot()) & 3;
 // a map direction as a vector on the (turned) panel
 function screenVec(d) {
 	let [dx, dy] = DXY[d];
@@ -186,6 +190,9 @@ function handleEvent(ev) {
 	}
 	else if (ev.type === "reset") {
 		log("マップが読み込み直されました");
+	}
+	else if (ev.type === "panel") {
+		panelSaves.set(ev.station, (panelSaves.get(ev.station) || 0) + 1);
 	}
 	else if (ev.type === "rescan") {
 		rescanResults.set(ev.station, ev);
@@ -372,7 +379,7 @@ function renderViewbar() {
 	const ls = layers();
 	let html = customBarHtml(station()) + `<span class="sep"></span><button data-zoom="out" title="縮小（Ctrl＋ホイール）">－</button><button data-zoom="fit" title="全体を表示">${Math.round(zoom * 100)}%</button><button data-zoom="in" title="拡大（Ctrl＋ホイール）">＋</button><span class="sep"></span>`;
 	const vr = viewRot();
-	html += `<button data-rot="1" title="地図を時計回りに90°回す（縦に引かれた駅を横向きにする）${isRelay() ? "。継電の盤は全員同じ向き（ゲームに保存）" : ""}">↻ 回転 ${vr * 90}°${vr ? "（北は" + ["上", "右", "下", "左"][vr] + "）" : ""}</button><span class="sep"></span>`;
+	html += `<button data-rot="1" title="地図を時計回りに90°回す（縦に引かれた駅を横向きにする）${isRelay() ? "。継電の盤は全員同じ向き（ゲームに保存）" : ""}">↻ 回転 ${vr * 90}°${northDir() ? "（北は" + ["上", "右", "下", "左"][northDir()] + "）" : ""}</button><span class="sep"></span>`;
 	if (isRelay()) html += `<button data-v="levers" class="${o.mapLevers !== false ? "on" : ""}" title="運転タブで、信号てこを地図の上にも表示する">地図にてこ</button>`;
 	html += `<button data-v="connected" class="${o.connected ? "on" : ""}" ${stationTiles ? "" : "disabled title='駅が分からないため使えません'"}>この駅につながる線路だけ</button>`;
 	if (ls.length > 1) {
@@ -386,7 +393,7 @@ function renderViewbar() {
 		}
 	}
 	// compass: always shows where north is (turns with the map)
-	const deg = vr * 90;
+	const deg = northDir() * 90;
 	html += `<span class="compass" title="方角（北が${["上", "右", "下", "左"][deg / 90]}）"><svg width="28" height="28" viewBox="0 0 28 28">
 		<circle cx="14" cy="14" r="12.5" fill="#141a24" stroke="#3a4558"/>
 		<g transform="rotate(${deg} 14 14)"><polygon points="14,3 18,14 10,14" fill="#ff5a5f"/><polygon points="14,25 18,14 10,14" fill="#8a94a3"/></g>

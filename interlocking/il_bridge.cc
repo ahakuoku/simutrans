@@ -625,8 +625,9 @@ static void handle_http(client_t &c, char *head, const char *body)
 	}
 	else if(  strcmp(target, "/api/info") == 0  ) {
 		karte_t *welt = world();
-		json.printf("{\"type\":\"info\",\"protocol\":2,\"map\":[%d,%d],\"player\":%d,\"players\":[",
-			welt ? welt->get_size().x : 0, welt ? welt->get_size().y : 0,
+		// rot: how often the map was turned (each turn moves north a quarter clockwise on the coordinates)
+		json.printf("{\"type\":\"info\",\"protocol\":2,\"map\":[%d,%d],\"rot\":%d,\"player\":%d,\"players\":[",
+			welt ? welt->get_size().x : 0, welt ? welt->get_size().y : 0, welt ? (int)welt->get_settings().get_rotation() : 0,
 			welt  &&  welt->get_active_player() ? welt->get_active_player()->get_player_nr() : -1);
 		// company names, for sorting stations and signals by company in the panel
 		bool first = true;

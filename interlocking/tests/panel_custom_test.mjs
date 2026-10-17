@@ -214,6 +214,42 @@ try {
 	await waitFor(async () => (await panel(sid)).parts.length === exported.parts.length, 10000, "saved");
 	check(true, "and saved");
 
+	console.log("[9] north after turning the map, undo, somebody else editing");
+	await page.evaluate(() => { info.rot = 1; render(); });
+	check((await page.getAttribute("#viewbar .compass", "title")).includes("北が右"), "the map turned once in the game: north is on the right");
+	await page.evaluate(() => { info.rot = 0; render(); });
+	await page.click("#viewbar button[data-cp=edit]");
+	await page.waitForSelector("#map .cpart");
+	await waitFor(async () => (await st()).stations[0].editing !== undefined, 5000, "editing shown");
+	check(true, "the game knows that somebody edits the custom panel");
+	const u0 = await page.evaluate(() => { const i = cpEdit.parts.findIndex(p => p.t === "D"); cpEdit.sel = i; render(); return [i, cpEdit.parts[i].x1]; });
+	await page.keyboard.press("ArrowRight"); await page.keyboard.press("ArrowRight");
+	await page.click("#viewbar button[data-cp=undo]");
+	check(await page.evaluate((i) => cpEdit.parts[i].x1, u0[0]) === u0[1] + 1, "↶ undoes one step");
+	await page.keyboard.press("Control+z");
+	check(await page.evaluate((i) => cpEdit.parts[i].x1, u0[0]) === u0[1], "Ctrl+Z undoes the next step");
+	await page.keyboard.press("Control+y");
+	check(await page.evaluate((i) => cpEdit.parts[i].x1, u0[0]) === u0[1] + 1, "Ctrl+Y redoes it");
+	// a second browser: sees who edits, asked before it starts, and warned before it overwrites
+	const page2 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+	const asked = [];
+	page2.on("dialog", d => { asked.push(d.message()); d.accept(); });
+	await page2.goto(BASE + "/");
+	await page2.waitForSelector("#conndot.ok");
+	await page2.evaluate((id) => { setArea(station().id, Object.assign(boxAround(halts.find(h => h.id === id).tiles, 10), { halt: id })); }, haltT.id);
+	await waitFor(async () => (await page2.textContent("#viewbar")).includes("編集中"), 8000, "editing shown to the other");
+	check(true, "the other browser shows that the panel is being edited");
+	await page2.click("#viewbar button[data-cp=edit]");
+	await page2.waitForSelector("#map .cpart");
+	check(asked.some(m => m.includes("編集中")), "and asks before it starts editing too");
+	await page.click("#viewbar button[data-cp=apply]");
+	await waitFor(async () => (await st()).stations[0].editing === undefined, 8000, "first applied");
+	await sleep(1500);
+	await page2.click("#viewbar button[data-cp=apply]");
+	await sleep(1500);
+	check(asked.some(m => m.includes("ほかの人がカスタム盤を保存")), "the second is warned before it replaces the panel saved meanwhile");
+	await page2.close();
+
 	console.log("[6] back to the track plan, and no custom panel any more");
 	await page.click("#viewbar button[data-cp=auto]");
 	await waitFor(async () => (await page.locator("#map [data-part]").count()) === 0, 5000, "track plan");

@@ -1185,6 +1185,19 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 		}
 	}
+	else if(  strcmp(cmd, "cp_edit") == 0  &&  n >= 3  ) {
+		// somebody starts / stops editing the custom panel (shown to the others; not a lock)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			st->edit_player = atoi(f[2]) ? (player ? player->get_player_nr() : 1) : 255;
+		}
+	}
 	else if(  (strcmp(cmd, "cp_begin") == 0  ||  strcmp(cmd, "cp_add") == 0  ||  strcmp(cmd, "cp_end") == 0)  &&  n >= 2  ) {
 		// a custom panel is uploaded in parts: cp_begin, cp_add,<parts> ..., cp_end,<number of parts> (or 0 = no custom panel)
 		il_station_t *st = find_station((uint16)atoi(f[1]));
@@ -1220,6 +1233,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 			stage.clear();
 			stage_station = 0;
+			st->edit_player = 255;
 			st->parts_rev = ++panel_rev_counter;
 			cbuffer_t ev;
 			ev.printf("{\"type\":\"panel\",\"station\":%u,\"parts\":%u}", st->id, st->parts.get_count());
@@ -3143,6 +3157,9 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.printf(",\"color\":\"%c\"}", st->shunt_col[i]);
 		}
 		buf.printf("],\"parts\":%u,\"parts_rev\":%u", st->parts.get_count(), st->parts_rev);
+		if(  st->edit_player != 255  ) {
+			buf.printf(",\"editing\":%u", st->edit_player);
+		}
 		buf.append(",\"marks\":[");
 		for(  uint32 i = 0;  i < st->marks.get_count();  i++  ) {
 			const il_mark_t *m = st->marks[i];

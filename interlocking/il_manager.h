@@ -172,8 +172,9 @@ struct il_station_t {
 	/// magnets and memos (マグネット・メモ)
 	vector_tpl<il_mark_t *> marks;
 	uint32 parts_rev;   ///< changes with every change of the parts (not saved): the panel fetches them again
+	uint8 edit_player;  ///< company editing the custom panel now, 255 = nobody (not saved)
 
-	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0) {}
+	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0), edit_player(255) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); clear_ptr_vector(parts); clear_ptr_vector(marks); }
 	il_slever_t *find_slever(koord3d pos, sint8 lever = -1) const;
 	il_point_t *find_point(koord3d pos) const;

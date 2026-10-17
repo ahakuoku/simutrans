@@ -19,6 +19,7 @@ function clockOf(s) {
 }
 let cpEdit = null;                // editing: { parts, sel, tool }
 let cpFetching = 0;
+const panelSaves = new Map();     // station id -> custom panels saved (event "panel") since this page was opened
 
 // ---------------------------------------------------------------------------
 // data
@@ -142,8 +143,9 @@ function makeDraft(st) {
 	layout.sidings.forEach((sd) => dest(sd.tiles.slice().sort((a, b) => Math.hypot(b.p[0] - sd.anchor.p[0], b.p[1] - sd.anchor.p[1]) - Math.hypot(a.p[0] - sd.anchor.p[0], a.p[1] - sd.anchor.p[1]))[0]));
 	layout.exits.forEach((x) => { const [dx, dy] = SV(x.dir); dest(x.tile, dx * 2, dy * 2); });
 	for (const t of layout.depots) dest(t, 0, -1);
-	// the style of the panel: the orientation of the drawing (for the compass)
-	parts.push({ t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], f: rot & 3 });
+	// the style of the panel: where north is on the drawing (for the compass). It stays when the map is turned
+	// later: the drawing shows the station as it is, only the coordinates of the game change
+	parts.push({ t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], f: northDir() });
 	// normalize: the panel starts at (2,2)
 	const placed = parts.filter(p => p.t !== "Y");
 	const xs = placed.flatMap(p => [p.x1, p.x2]), ys = placed.flatMap(p => [p.y1, p.y2]);
@@ -386,7 +388,38 @@ function drawHandles(g, p, X, Y) {
 }
 function startEdit(st) {
 	const c = customOf(st);
-	cpEdit = { parts: c ? JSON.parse(JSON.stringify(c.parts)) : makeDraft(st), sel: -1, dirty: !c };
+	// not a lock: somebody else (maybe of the same company) may be editing, the panel applied last wins
+	if (st.editing !== undefined && !confirm(`「${companyName(st.editing)}」の人がカスタム盤を編集中です（同じ会社の別の人かもしれません）。\n編集を始めますか？後から「適用」した方の内容になります。`)) return;
+	cpEdit = { parts: c ? JSON.parse(JSON.stringify(c.parts)) : makeDraft(st), sel: -1, dirty: !c, saves: panelSaves.get(st.id) || 0, undo: [], redo: [] };
+	cpEdit.last = JSON.stringify(cpEdit.parts);
+	command(`cp_edit,${st.id},1`, "カスタム盤の編集を開始");
+	render();
+}
+function endEdit(st) {
+	if (cpEdit) command(`cp_edit,${st.id},0`, "カスタム盤の編集を終了");
+	cpEdit = null;
+}
+// undo / redo: whenever the parts differ from the last state seen, that state goes onto the undo list
+// (not while dragging: a drag is one step)
+function cpTrack() {
+	if (!cpEdit || cpEdit.drag) return;
+	const now = JSON.stringify(cpEdit.parts);
+	if (now === cpEdit.last) return;
+	cpEdit.undo.push(cpEdit.last);
+	if (cpEdit.undo.length > 200) cpEdit.undo.shift();
+	cpEdit.redo = [];
+	cpEdit.last = now;
+}
+function cpUndo(redo = false) {
+	if (!cpEdit || cpEdit.pick) return;
+	cpTrack();
+	const from = redo ? cpEdit.redo : cpEdit.undo, to = redo ? cpEdit.undo : cpEdit.redo;
+	if (!from.length) return;
+	to.push(cpEdit.last);
+	cpEdit.last = from.pop();
+	cpEdit.parts = JSON.parse(cpEdit.last);
+	cpEdit.sel = -1;
+	cpEdit.dirty = true;
 	render();
 }
 function bindEditor(svg, g, G) {
@@ -439,7 +472,7 @@ function bindEditor(svg, g, G) {
 		if (dx || dy) { cpEdit.dirty = true; drag.moved = true; }
 		renderCustom();
 	};
-	svg.onmouseup = () => { if (cpEdit) cpEdit.drag = null; };
+	svg.onmouseup = () => { if (cpEdit && cpEdit.drag) { const moved = cpEdit.drag.moved; cpEdit.drag = null; if (moved) render(); } };
 	svg.ondblclick = (e) => {
 		const pt = e.target.closest("[data-part]");
 		if (!pt) return;
@@ -453,6 +486,10 @@ function bindEditor(svg, g, G) {
 	};
 }
 document.addEventListener("keydown", (e) => {
+	if (cpEdit && (e.ctrlKey || e.metaKey) && !(document.activeElement && /INPUT|TEXTAREA/.test(document.activeElement.tagName))) {
+		const k = e.key.toLowerCase();
+		if (k === "z" || k === "y") { cpUndo(k === "y" || e.shiftKey); e.preventDefault(); return; }
+	}
 	if (!cpEdit || cpEdit.sel < 0 || document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
 	if (e.key === "Delete" || e.key === "Backspace") { cpEdit.parts.splice(cpEdit.sel, 1); cpEdit.sel = -1; cpEdit.dirty = true; render(); e.preventDefault(); }
 	const mv = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
@@ -531,6 +568,7 @@ function importPanel() {
 // buttons of the view bar for the custom panel
 function customBarHtml(st) {
 	if (!st) return "";
+	cpTrack();
 	if (cpEdit && cpEdit.pick) {
 		const p = cpEdit.parts[cpEdit.pick.index];
 		const what = { T: "線路の線：結びつく線路を押す（もう一度押すと外す）", H: "番線：番線の線路を押す（もう一度押すと外す）", S: "てこ：信号・出発点を押す", P: "ポイント：ポイントを押す", D: "着点：番線・留置線・出口・車庫の線路を押す" }[p.t] || "";
@@ -551,20 +589,21 @@ function customBarHtml(st) {
 		<button data-cp="pick" ${sel && "TSPDH".includes(sel.t) ? "" : "disabled"} title="選んだ部品を、ゲームの線路・信号・ポイントに結び直す">結び直す</button>
 		<button data-cp="nextbad" ${bad ? "" : "disabled"} title="配線と合わなくなった部品（灰色の破線）を順に選ぶ">合わない部品 ${bad}</button>
 		<button data-cp="del" ${cpEdit.sel < 0 ? "disabled" : ""} title="選んだ部品を消す（Delete キー）">削除</button>
+		<button data-cp="undo" ${cpEdit.undo.length ? "" : "disabled"} title="元に戻す（Ctrl+Z）">↶ 戻す</button><button data-cp="redo" ${cpEdit.redo.length ? "" : "disabled"} title="やり直す（Ctrl+Y）">↷</button>
 		<button data-cp="draft" title="今の略図から下書きを作り直す（編集した内容は消えます）">下書きを作り直す</button>
 		<button data-cp="export" title="カスタム盤をファイルに書き出す">書き出し</button><button data-cp="import" title="書き出したファイルを読み込む（今の編集内容と置き換え）">読み込み</button>
 		<button data-cp="apply" class="primary" title="ゲームに保存して全員の盤に反映する">適用</button><button data-cp="cancel">やめる</button>`;
 	}
 	const has = !!customOf(st);
 	const on = customView(st);
-	return (has ? `<button data-cp="auto" class="${on ? "" : "on"}" title="ゲームの配線をそのまま描いた略図">略図</button><button data-cp="custom" class="${on ? "on" : ""}" title="この駅のカスタム盤">カスタム盤</button>` : "")
+	return (st.editing !== undefined ? `<span class="cpedit" title="後から「適用」した方の内容になります">✎ ${esc(companyName(st.editing))}が盤を編集中</span>` : "") + (has ? `<button data-cp="auto" class="${on ? "" : "on"}" title="ゲームの配線をそのまま描いた略図">略図</button><button data-cp="custom" class="${on ? "on" : ""}" title="この駅のカスタム盤">カスタム盤</button>` : "")
 		+ `<button data-cp="edit" title="${has ? "カスタム盤を編集する" : "今の略図から下書きを作り、カスタム盤を作る"}">${has ? "盤を編集" : "カスタム盤を作る"}</button>`;
 }
 // the colour of the whole panel (style part)
 function customBarChange(s) {
 	if (!cpEdit || s.dataset.cp !== "color") return;
 	let y = cpEdit.parts.find(p => p.t === "Y");
-	if (!y) { y = { t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], s: "", f: viewRot() & 3 }; cpEdit.parts.push(y); }
+	if (!y) { y = { t: "Y", x1: 0, y1: 0, x2: 0, y2: 0, b: [], s: "", f: northDir() }; cpEdit.parts.push(y); }
 	y.f = (y.f & 15) | (Number(s.value) << 4);
 	cpEdit.dirty = true;
 	render();
@@ -586,6 +625,7 @@ async function customBarClick(b) {
 		render();
 	}
 	else if (c === "export") exportPanel(st, cpEdit.parts);
+	else if (c === "undo" || c === "redo") cpUndo(c === "redo");
 	else if (c === "import") importPanel();
 	else if (c === "add") {
 		const t = b.dataset.t;
@@ -610,9 +650,11 @@ async function customBarClick(b) {
 	}
 	else if (c === "cancel") {
 		if (cpEdit.dirty && !confirm("編集した内容を捨てますか？")) return;
-		cpEdit = null; render();
+		endEdit(st); render();
 	}
 	else if (c === "apply") {
+		// somebody else applied a panel since this editing started: theirs would be replaced
+		if ((panelSaves.get(st.id) || 0) !== cpEdit.saves && !confirm("編集を始めたあとに、ほかの人がカスタム盤を保存しています。\nその内容を、この編集で置き換えますか？")) return;
 		const parts = cpEdit.parts;
 		const r = await uploadParts(st, parts);
 		if (r.ok) { toast("カスタム盤を保存しました"); cpEdit = null; localStore("custom." + st.id, "1"); }

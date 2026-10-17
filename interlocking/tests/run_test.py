@@ -442,6 +442,8 @@ def run(args):
         p.request(f"debug_tool {rot} ")
         p.wait_event(lambda e: e["type"] == "rotated", 30)
         after = p.status()
+        info = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/info").read())
+        check(info()["rot"] == 1, "the map was turned once: north moved (info rot)")
         pr = panel()["parts"]
         check(pr[0]["b"] != pn["parts"][0]["b"] and (pr[0]["x1"], pr[0]["y1"], pr[0]["x2"], pr[0]["y2"]) == (2, 3, 12, 3), "custom panel: its tiles turn with the map, its drawing stays")
         s_after = after["stations"][0]["signals"][0]
@@ -458,6 +460,7 @@ def run(args):
         check(p.status()["stations"][0]["signals"][0]["pos"] == [3, 5, 0], "four rotations restore the signal position")
         check(p.status()["stations"][0]["area_of"] == before["stations"][0]["area_of"], "four rotations restore the areas of the levers")
         check(panel()["parts"] == pn["parts"], "four rotations restore the tiles of the custom panel (its drawing is kept)")
+        check(info()["rot"] == 0, "four turns: north where it was")
 
         print("[6] save and load")
         # set any free route (the train may just be running over one of them)
