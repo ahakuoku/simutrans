@@ -187,16 +187,46 @@ try {
 	await page.click("#map circle.picktarget[data-pick='3,5,0']");
 	await waitFor(async () => (await page.textContent("#viewbar button[data-cp=nextbad]")).includes("0"), 5000, "matches again");
 	check(await page.evaluate(() => cpEdit.parts[cpEdit.sel].b[0].join(",") === "3,5,0" && !cpEdit.pick), "the lever stands for S1 again, back on the custom panel");
-	// a new track line, bound to two tiles
+	// ＋線路: drag a line from one point to another; it is bound to the track between them
+	const scr = async (x, y) => page.evaluate(([x, y]) => { const r = document.getElementById("map").getBoundingClientRect(); return [r.left + 20 + x * CELL / 2, r.top + 20 + y * CELL / 2]; }, [x, y]);
+	const pts = await page.evaluate(() => cpEdit.parts.filter(p => p.t === "P").map(p => ({ x: p.x1, y: p.y1, t: p.b[0].join(",") })));
+	const pa = pts.find(p => p.t === "9,5,0"), pb = pts.find(p => p.t === "9,6,0");
 	await page.click("#viewbar button[data-cp=add][data-t=T]");
-	const mb = await page.locator("#map").boundingBox();
-	await page.mouse.click(mb.x + 60, mb.y + mb.height - 60);
-	await page.waitForSelector("#map circle.picktarget[data-pick='6,5,0']");
-	await page.click("#map circle.picktarget[data-pick='6,5,0']");
-	await page.click("#map circle.picktarget[data-pick='7,5,0']");
-	await page.click("#viewbar button[data-cp=pickdone]");
-	const nl = await page.evaluate(() => cpEdit.parts[cpEdit.parts.length - 1]);
-	check(nl.t === "T" && nl.b.map(x => x.join(",")).join(" ") === "6,5,0 7,5,0" && nl.x2 === nl.x1 + 4, "a new track line placed and bound to (6,5) and (7,5)");
+	const [sx, sy] = await scr(pa.x, pa.y), [ex, ey] = await scr(pb.x + 2, pb.y);
+	await page.mouse.move(sx, sy); await page.mouse.down();
+	await page.mouse.move((sx + ex) / 2, (sy + ey) / 2, { steps: 3 }); await page.mouse.move(ex, ey, { steps: 3 });
+	await page.mouse.up();
+	await page.keyboard.press("Escape");
+	const nl = await page.evaluate(() => cpEdit.parts[cpEdit.sel]);
+	check(nl.t === "T" && nl.x1 === pa.x && nl.y1 === pa.y && nl.x2 === pb.x + 2 && nl.y2 === pb.y, `a slanting line drawn by dragging (${nl.x1},${nl.y1})-(${nl.x2},${nl.y2})`);
+	check(nl.b.map(x => x.join(",")).includes("9,5,0") && nl.b.length >= 2, "it is bound to the track between its ends: " + nl.b.map(x => x.join(",")).join(" "));
+	// an L of two lines (a bend, no point there): dragging the corner moves both ends
+	const L = await page.evaluate(() => {
+		for (let i = 0; i < cpEdit.parts.length; i++) {
+			const p = cpEdit.parts[i];
+			if (p.t !== "T") continue;
+			for (const w of [1, 2]) { const j = joinedEnds(cpEdit.parts, i, w); if (j.length) return { i, w, j: j[0], at: w === 1 ? [p.x1, p.y1] : [p.x2, p.y2] }; }
+		}
+		return null;
+	});
+	check(!!L, "the draft has a bend made of two lines");
+	await page.evaluate((i) => { cpEdit.sel = i; render(); }, L.i);
+	const [hx, hy] = await scr(L.at[0], L.at[1]), [tx, ty] = await scr(L.at[0] + 2, L.at[1] + 1);
+	await page.mouse.move(hx, hy); await page.mouse.down(); await page.mouse.move(tx, ty, { steps: 5 }); await page.mouse.up();
+	const moved = await page.evaluate((L) => { const p = cpEdit.parts[L.i], q = cpEdit.parts[L.j.index]; return [L.w === 1 ? [p.x1, p.y1] : [p.x2, p.y2], L.j.which === 1 ? [q.x1, q.y1] : [q.x2, q.y2]]; }, L);
+	check(moved[0].join(",") === `${L.at[0] + 2},${L.at[1] + 1}` && moved[1].join(",") === moved[0].join(","), `the corner is dragged and both lines follow (${L.at} -> ${moved[0]})`);
+	await page.locator("#map").screenshot({ path: path.join(shots, "custom_slant.png") });
+	// pressing a selected part again selects the part under it
+	const stacked = await page.evaluate(() => { const i = cpEdit.parts.findIndex(p => p.t === "P"); cpEdit.sel = i; render(); return i; });
+	const sp = await page.evaluate((i) => [cpEdit.parts[i].x1, cpEdit.parts[i].y1], stacked);
+	const [px, py] = await scr(sp[0], sp[1]);
+	const seen = [];
+	for (let k = 0; k < 4; k++) {
+		await page.mouse.click(px, py);
+		seen.push(await page.evaluate(() => cpEdit.parts[cpEdit.sel].t));
+		if (seen[seen.length - 1] === "T") break;
+	}
+	check(seen[0] !== "P" && seen.includes("T"), `pressing the selected point again selects the parts under it in turn (${seen.join(" → ")})`);
 	// export, then import the file back
 	const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#viewbar button[data-cp=export]")]);
 	const file = path.join(shots, "exported-panel.json");

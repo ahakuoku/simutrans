@@ -175,7 +175,8 @@ function destName(st, id) {
 }
 // the part no longer matches the track (rebuilt in the game): drawn grey and dashed
 function unbound(st, p) {
-	if (p.t === "T" || p.t === "H") return !(p.b || []).some(t => tileIndex.has(key(t)));
+	// a line or platform that stands for no tile at all is a decoration
+	if (p.t === "T" || p.t === "H") return (p.b || []).length > 0 && !p.b.some(t => tileIndex.has(key(t)));
 	if (p.t === "S") return !p.b[0] || !(st.signals.some(s => key(s.pos) === key(p.b[0])) || isDepartureAnchor(st, p.b[0])) || (p.f && !shuntColor(st, p.b[0]));
 	if (p.t === "P") return !p.b[0] || !layout.points.some(pt => key(pt.t.p) === key(p.b[0]));
 	if (p.t === "D") return !destIdOf(p);
@@ -304,6 +305,11 @@ function renderCustom() {
 			el("text", { x, y: y - r - 3, "font-size": 10, fill: "#cfd6e0", "text-anchor": "middle" }, grp).textContent = "北";
 		}
 	}
+	// a line being drawn with ＋線路
+	if (cpEdit && cpEdit.drawing) {
+		const d = cpEdit.drawing;
+		el("line", { x1: X(d.from[0]), y1: Y(d.from[1]), x2: X(d.to[0]), y2: Y(d.to[1]), stroke: "var(--yellow)", "stroke-width": 6 * sc, "stroke-linecap": "round", "stroke-dasharray": "8 6", opacity: .8, "pointer-events": "none" }, g);
+	}
 	// handles of the selected part on top of everything
 	if (cpEdit && parts[cpEdit.sel]) drawHandles(g, parts[cpEdit.sel], X, Y);
 	// destinations that come and go (up to a standing train, 手前): beside the track tile they end on
@@ -386,6 +392,63 @@ function drawHandles(g, p, X, Y) {
 	const h = (x, y, which) => el("rect", { x: X(x) - 5, y: Y(y) - 5, width: 10, height: 10, fill: "var(--yellow)", stroke: "#000", class: "cphandle", "data-h": which }, g);
 	if ("THAF".includes(p.t)) { h(p.x1, p.y1, 1); h(p.x2, p.y2, 2); }
 }
+// the end of another line at the same point, when exactly two lines meet there and no point / lever stands there
+// (a bend of the track, not a junction)
+function joinedEnds(parts, i, which) {
+	const p = parts[i];
+	const at = which === 1 ? [p.x1, p.y1] : [p.x2, p.y2];
+	const ends = [];
+	parts.forEach((q, j) => {
+		if (q.t !== "T" || j === i) return;
+		if (q.x1 === at[0] && q.y1 === at[1]) ends.push({ index: j, which: 1 });
+		if (q.x2 === at[0] && q.y2 === at[1]) ends.push({ index: j, which: 2 });
+	});
+	const busy = parts.some(q => "PSD".includes(q.t) && q.x1 === at[0] && q.y1 === at[1]);
+	return ends.length === 1 && !busy ? ends : [];
+}
+// game tiles for a line drawn from a to b: the track between the tiles shown nearest to its ends
+function autoBind(parts, a, b) {
+	const near = (pt) => {
+		let best = null, bd = 1.6;
+		for (const p of parts) {
+			if (p.t === "P" && p.b && p.b[0]) {
+				const d = Math.hypot(p.x1 - pt[0], p.y1 - pt[1]);
+				if (d < bd) { bd = d; best = p.b[0]; }
+			}
+			if (p.t === "T" && p.b && p.b.length) p.b.forEach((t, k) => {
+				const f = p.b.length > 1 ? k / (p.b.length - 1) : .5;
+				const d = Math.hypot(p.x1 + (p.x2 - p.x1) * f - pt[0], p.y1 + (p.y2 - p.y1) * f - pt[1]);
+				if (d < bd) { bd = d; best = t; }
+			});
+		}
+		return best;
+	};
+	const ta = near(a), tb = near(b);
+	if (!ta || !tb) return [];
+	if (key(ta) === key(tb)) return [ta];
+	// the shortest way along the track between them (not far: a line on the panel is short)
+	const prev = new Map([[key(ta), null]]);
+	const todo = [ta];
+	for (let i = 0; i < todo.length && todo.length < 3000; i++) {
+		const t = tileIndex.get(key(todo[i]));
+		if (!t) continue;
+		if (key(t.p) === key(tb)) break;
+		for (const d of DIRS) {
+			if (!(t.r & d)) continue;
+			for (const dz of [0, 1, -1]) {
+				const n = [t.p[0] + DXY[d][0], t.p[1] + DXY[d][1], t.p[2] + dz];
+				const nt = tileIndex.get(key(n));
+				if (!nt || prev.has(key(n)) || !(nt.r & BACK[d])) continue;
+				prev.set(key(n), todo[i]);
+				todo.push(n);
+			}
+		}
+	}
+	if (!prev.has(key(tb))) return [ta, tb];
+	const path = [];
+	for (let p = tb; p; p = prev.get(key(p))) path.unshift(p);
+	return path.length <= 40 ? path : [ta, tb];
+}
 function startEdit(st) {
 	const c = customOf(st);
 	// not a lock: somebody else (maybe of the same company) may be editing, the panel applied last wins
@@ -431,9 +494,15 @@ function bindEditor(svg, g, G) {
 	svg.onmousedown = (e) => {
 		const h = e.target.closest(".cphandle"), pt = e.target.closest("[data-part]");
 		const at = toGrid(e);
+		if (cpEdit.tool === "T") {
+			// ＋線路: drag from one point of the grid to another (over other parts, too)
+			cpEdit.drawing = { from: at, to: at };
+			e.preventDefault();
+			return;
+		}
 		if (cpEdit.tool && !pt && !h) {
 			const t = cpEdit.tool === "text" ? "L" : cpEdit.tool;
-			if ("TSPD".includes(t)) {
+			if ("SPD".includes(t)) {
 				// a part that stands for something in the game: placed, then its tiles are chosen on the track plan
 				const [x, y] = at;
 				cpEdit.parts.push({ t, x1: x, y1: y, x2: t === "T" ? x + 4 : x, y2: y, b: [], s: "", f: 0 });
@@ -454,12 +523,30 @@ function bindEditor(svg, g, G) {
 			render();
 			return;
 		}
-		if (h && cpEdit.sel >= 0) cpEdit.drag = { which: Number(h.dataset.h), from: at, orig: Object.assign({}, cpEdit.parts[cpEdit.sel]) };
-		else if (pt) { cpEdit.sel = Number(pt.dataset.part); cpEdit.drag = { which: 0, from: at, orig: Object.assign({}, cpEdit.parts[cpEdit.sel]) }; render(); }
+		if (h && cpEdit.sel >= 0) {
+			const which = Number(h.dataset.h);
+			const p = cpEdit.parts[cpEdit.sel];
+			cpEdit.drag = { which, from: at, orig: Object.assign({}, p), joined: p.t === "T" ? joinedEnds(cpEdit.parts, cpEdit.sel, which) : [] };
+		}
+		else if (pt) {
+			// the selected part under the pointer (also below others) stays selected and can be dragged;
+			// pressing it again without moving selects the next part under the pointer
+			const under = [...new Set(document.elementsFromPoint(e.clientX, e.clientY).map(x => x.closest && x.closest("[data-part]")).filter(Boolean).map(x => Number(x.dataset.part)))];
+			const again = under.includes(cpEdit.sel);
+			const i = again ? cpEdit.sel : Number(pt.dataset.part);
+			cpEdit.sel = i;
+			cpEdit.drag = { which: 0, from: at, orig: Object.assign({}, cpEdit.parts[i]), again, under };
+			if (!again) render();
+		}
 		else { cpEdit.sel = -1; render(); }
 		e.preventDefault();
 	};
 	svg.onmousemove = (e) => {
+		if (cpEdit && cpEdit.drawing) {
+			const at = toGrid(e);
+			if (at[0] !== cpEdit.drawing.to[0] || at[1] !== cpEdit.drawing.to[1]) { cpEdit.drawing.to = at; renderCustom(); }
+			return;
+		}
 		const drag = cpEdit && cpEdit.drag;
 		if (!drag || cpEdit.sel < 0) return;
 		const at = toGrid(e);
@@ -469,10 +556,39 @@ function bindEditor(svg, g, G) {
 		else if (drag.which === 1) { p.x1 = Math.max(0, o.x1 + dx); p.y1 = Math.max(0, o.y1 + dy); }
 		else { p.x2 = Math.max(0, o.x2 + dx); p.y2 = Math.max(0, o.y2 + dy); }
 		p.x1 = Math.max(0, p.x1); p.y1 = Math.max(0, p.y1); p.x2 = Math.max(0, p.x2); p.y2 = Math.max(0, p.y2);
+		// the other line ending at the same corner follows (an L made slanting in one drag)
+		const np = drag.which === 1 ? [p.x1, p.y1] : [p.x2, p.y2];
+		for (const j of drag.joined || []) {
+			const q = cpEdit.parts[j.index];
+			if (j.which === 1) { q.x1 = np[0]; q.y1 = np[1]; } else { q.x2 = np[0]; q.y2 = np[1]; }
+		}
 		if (dx || dy) { cpEdit.dirty = true; drag.moved = true; }
 		renderCustom();
 	};
-	svg.onmouseup = () => { if (cpEdit && cpEdit.drag) { const moved = cpEdit.drag.moved; cpEdit.drag = null; if (moved) render(); } };
+	svg.onmouseup = (e) => {
+		if (cpEdit && cpEdit.drawing) {
+			const d = cpEdit.drawing;
+			cpEdit.drawing = null;
+			if (d.from[0] !== d.to[0] || d.from[1] !== d.to[1]) {
+				cpEdit.parts.push({ t: "T", x1: d.from[0], y1: d.from[1], x2: d.to[0], y2: d.to[1], b: autoBind(cpEdit.parts, d.from, d.to), s: "", f: 0 });
+				cpEdit.sel = cpEdit.parts.length - 1;
+				cpEdit.dirty = true;
+			}
+			render();
+			return;
+		}
+		if (cpEdit && cpEdit.drag) {
+			const d = cpEdit.drag;
+			cpEdit.drag = null;
+			if (!d.moved && d.again) {
+				// the parts under the pointer, from the top: the next one after the selected
+				const list = d.under;
+				if (list.length > 1) cpEdit.sel = list[(list.indexOf(cpEdit.sel) + 1) % list.length];
+				render();
+			}
+			else if (d.moved) render();
+		}
+	};
 	svg.ondblclick = (e) => {
 		const pt = e.target.closest("[data-part]");
 		if (!pt) return;
@@ -490,6 +606,7 @@ document.addEventListener("keydown", (e) => {
 		const k = e.key.toLowerCase();
 		if (k === "z" || k === "y") { cpUndo(k === "y" || e.shiftKey); e.preventDefault(); return; }
 	}
+	if (cpEdit && e.key === "Escape" && cpEdit.tool) { cpEdit.tool = null; cpEdit.drawing = null; render(); return; }
 	if (!cpEdit || cpEdit.sel < 0 || document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
 	if (e.key === "Delete" || e.key === "Backspace") { cpEdit.parts.splice(cpEdit.sel, 1); cpEdit.sel = -1; cpEdit.dirty = true; render(); e.preventDefault(); }
 	const mv = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
@@ -582,7 +699,7 @@ function customBarHtml(st) {
 		const bad = cpEdit.parts.filter(p => unbound(st0, p)).length;
 		const add = (t, label, title) => `<button data-cp="add" data-t="${t}" class="${cpEdit.tool === t ? "on" : ""}" title="${title}（押してから盤の空いた所を押す）">${label}</button>`;
 		const addf = (t, label, title) => `<button data-cp="add" data-t="${t}" class="${cpEdit.tool === t ? "on" : ""}" title="${title}（押してから盤の空いた所を押し、続けて結びつく線路などを選ぶ）">${label}</button>`;
-		return `<span class="cpedit">カスタム盤を編集中</span>${addf("T", "＋線路", "線路の線")}${addf("S", "＋てこ", "信号てこ")}${addf("P", "＋ポイント", "ポイント")}${addf("D", "＋着点", "着点ボタン")}<span class="sep"></span>${add("L", "文字", "盤に文字を書く")}${add("A", "矢印", "「至 ○○」の矢印")}${add("F", "区画", "区画の枠（扱い区分など）")}${add("C", "時計", "ゲームの日時")}${add("K", "方位", "北の向き")}
+		return `<span class="cpedit">カスタム盤を編集中</span><button data-cp="add" data-t="T" class="${cpEdit.tool === "T" ? "on" : ""}" title="押してから、盤の上をドラッグして線を引く（何本でも。もう一度押すか Esc でやめる）。両端がポイント・線路の上なら、その間の線路に結びつく">＋線路</button>${addf("S", "＋てこ", "信号てこ")}${addf("P", "＋ポイント", "ポイント")}${addf("D", "＋着点", "着点ボタン")}<span class="sep"></span>${add("L", "文字", "盤に文字を書く")}${add("A", "矢印", "「至 ○○」の矢印")}${add("F", "区画", "区画の枠（扱い区分など）")}${add("C", "時計", "ゲームの日時")}${add("K", "方位", "北の向き")}
 		<select data-cp="color" title="盤の色">${PANEL_COLORS.map((c, i) => `<option value="${i}" ${(style.f >> 4) % PANEL_COLORS.length === i ? "selected" : ""}>盤：${c[0]}</option>`).join("")}</select>
 		${sel && sel.t === "F" ? FRAME_COLORS.map((c, i) => `<button data-cp="fcolor" data-c="${i}" class="swatch ${(sel.f || 0) === i ? "on" : ""}" style="background:${c}" title="枠の色"></button>`).join("") : ""}` + `
 		<span class="sep"></span>
