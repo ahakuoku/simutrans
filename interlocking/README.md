@@ -16,7 +16,7 @@
 | `PROTOCOL.md` | 盤との通信の仕様 |
 | `PORTING.md` | 新しい OTRP への移植手順 |
 | `hooks.patch` / `check_hooks.sh` | 移植用のパッチと確認スクリプト |
-| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
+| `tests/` | ヘッドレスで動かす自動テスト（シナリオ `il-test`・`il-tandem`・`il-coupling`、`run_test.py`、`pass_test.py`、`tandem_test.py`、`coupling_test.py`、`coupling_platform_test.py`、`coupling_more_test.py`、`rescan_test.py`、Web 盤の `panel_test.mjs`・`panel_tandem_test.mjs`） |
 | `tools/il_cli.py` | 手で試すための簡易コンソール盤 |
 | `tools/build_windows.sh` | Linux 上で Windows 64bit 版をクロスビルドするスクリプト（MinGW） |
 
@@ -136,6 +136,23 @@
 （電子・継電とも）。設定タブ「0.」の「入換てこ」で、信号・出発点ごとに 白／緑／ピンク を付ける。
 電子の盤では、出発点の後ろの小さな色付きのボタンが入換てこで、押してから着点ボタン（「〇〇手前」）を押す。
 緑は入換進路、ピンクは列車の進路として扱う（時素の秒数が違う）。進入する列車は、全体が収まるときだけ進入する。
+
+### 配線を読み直す（ゲームで線路を作り直したとき）
+
+設定タブ「0.」の **配線を読み直す** を押すと、今の配線に合わせる（押したときだけ。自動ではしない）。
+
+- 撤去された信号を駅から外す（その信号からの進路、てこのまとめ・入換てこ・区分の設定も消す）
+- 番線・留置線の長さや端が変わったら、仮想出発信号を合わせる（端が動いたら、その出発点の設定も一緒に移す）。線路がなくなったら外す
+- なくなったポイントの転てつてこ、なくなった留置線の駅を外す
+- 登録した進路が今の線路で通れないときは、同じ始点・着点で引き直す。引けないものは「通れなくなった進路」として出すので作り直す
+- 使用中の進路は見ない（解除してからもう一度押す）
+- 新しく置いた信号は自動では登録しない（表示範囲の未登録の信号を一覧に出す）
+
+結果は設定タブとログに出る。
+
+### てこの盤を閉じる
+
+継電の盤の右側（運転タブ）のてこの盤は、「▼ てこの盤を閉じる」で閉じられる（地図の上のてこだけで扱うとき）。ブラウザごとに覚える。
 
 ### 扱い区分（何人かで扱う大きな駅）
 

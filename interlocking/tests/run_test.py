@@ -65,7 +65,7 @@ class Panel:
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 msg = json.loads(line.decode("utf-8"))
-                if msg["type"] in ("status", "signals", "convoys", "pong", "error", "debug_tool", "debug_save"):
+                if msg["type"] in ("status", "signals", "convoys", "pong", "error", "debug_tool", "debug_save", "debug_work"):
                     self.answers.put(msg)
                 else:
                     self.events.put(msg)

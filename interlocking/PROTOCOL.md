@@ -83,6 +83,7 @@
 | てこを倒す向き（継電） | `lv_side,<駅ID>,x,y,z,<L/R/A>` | 盤で自動に決める向きを手で変える（A = 自動に戻す）。全員共通 |
 | 一斉停止てこ | `st_stop,<駅ID>,<0/1>` | 1 の間、その駅の設定済みの進路の信号は進行にならない |
 | 入換てこ | `lv_shunt,<駅ID>,x,y,z,<W/G/P/N>` | 信号・出発点に入換用のてこを付ける（W = 白・入換信号機、G = 緑・入換標識、P = ピンク・誘導信号、N = 外す） |
+| 配線を読み直す | `st_rescan,<駅ID>` | ゲームで作り直した配線に合わせる（撤去された信号・ポイント・留置線の駅を外す、番線の長さ・端を合わせる、通れなくなった進路を同じ両端で引き直す）。結果はイベント `rescan` |
 | 扱い区分の名前 | `ar_name,<駅ID>,<番号>,<名前>` | 区分 1〜9 の名前を付ける。番号＝今の数＋1 で追加 |
 | 扱い区分を消す | `ar_del,<駅ID>,<番号>` | その区分のてこは共通に戻り、後ろの区分の番号が 1 つずつ詰まる |
 | てこの扱い区分 | `ar_pos,<駅ID>,x,y,z,<番号>` | 信号・出発点・ポイントの区分（0 = 共通）。継電の着点待ちのてこは区分ごとに 1 本 |
@@ -133,6 +134,7 @@
 | `route_defined` | 進路が定義された。`id`、`station`、`tiles`（タイル数） |
 | `route` | 進路の状態が変わった。`id`、`station`、`state`（`idle` / `set` / `occupied` / `releasing`）、`convoy`（進入した列車名） |
 | `wrong_route` | 設定された進路の先から列車の目的地へ行けない。`id`、`convoy` |
+| `rescan` | 配線を読み直した結果（`st_rescan`）。`station`、外した数 `signals_removed`・`departures_removed`・`levers_removed`・`sidings_removed`、端を移した出発点の数 `departures_moved`、進路の名前 `routes_rerouted`（引き直した）・`routes_broken`（通れない）・`routes_removed`（始点がなくなって消した）、使用中で見なかった進路の数 `routes_busy`。結果のイベントより先に届く |
 | `reset` / `rotated` | マップの読み込み・作り直し／回転。盤は `status` を取り直す |
 
 ### `status` の例

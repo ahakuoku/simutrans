@@ -146,6 +146,34 @@ function renderDeskBar() {
 	if (sel) sel.addEventListener("change", () => { setMyDesk(st, Number(sel.value)); relaySel = null; render(); });
 }
 
+// re-reading the track after it was rebuilt in the game (配線を読み直す): the last result of each station
+const rescanResults = new Map();
+function rescanSummary(ev) {
+	const out = [];
+	if (ev.signals_removed) out.push(`撤去された信号 ${ev.signals_removed} 個を外した`);
+	if (ev.departures_removed) out.push(`番線・留置線がなくなった出発点 ${ev.departures_removed} 個を外した`);
+	if (ev.departures_moved) out.push(`番線の端が変わった出発点 ${ev.departures_moved} 個を移した`);
+	if (ev.levers_removed) out.push(`なくなったポイントの転てつてこ ${ev.levers_removed} 本を外した`);
+	if (ev.sidings_removed) out.push(`なくなった留置線の駅 ${ev.sidings_removed} 個を外した`);
+	if (ev.routes_rerouted.length) out.push(`進路を今の線路で引き直した：${ev.routes_rerouted.join("・")}`);
+	if (ev.routes_removed.length) out.push(`始点がなくなった進路を消した：${ev.routes_removed.join("・")}`);
+	if (ev.routes_broken.length) out.push(`通れなくなった進路（作り直してください）：${ev.routes_broken.join("・")}`);
+	if (ev.routes_busy) out.push(`使用中の進路 ${ev.routes_busy} 本は、解除後にもう一度読み直してください`);
+	return out.length ? out : ["変わったところはありません"];
+}
+function rescanCfg(st) {
+	const ev = rescanResults.get(st.id);
+	// signals on the map that belong to no station (new signals are not registered by themselves)
+	const known = new Set(status.stations.flatMap(s => s.signals.map(x => key(x.pos))));
+	const fresh = (tracks.tiles || []).filter(t => t.s && isVisible(t) && !known.has(key(t.p)));
+	return `<div class="hint" style="margin-top:6px"><b>配線を読み直す</b>：ゲームで線路・信号・ホームを作り直したあとに押すと、今の配線に合わせます
+		（撤去された信号やポイントを外す、番線の長さ・端を合わせる、進路を今の線路で引き直す）。新しく置いた信号は自動では登録しません。</div>
+		<div class="row"><button id="rescanBtn">配線を読み直す</button></div>
+		${ev ? `<div class="check" data-rescan="1">${rescanSummary(ev).map(esc).join("<br>")}</div>` : ""}
+		${ev && fresh.length ? `<div class="check warn" data-rescanfresh="1">表示範囲にある未登録の信号：${fresh.slice(0, 8).map(t => `(${t.p.join(", ")})`).join(" ")}${fresh.length > 8 ? ` ほか ${fresh.length - 8} 個` : ""}
+			<br>てこで扱うなら「3. 入口」などで登録してください。</div>` : ""}`;
+}
+
 // setup of the operating areas (設定タブ)
 function areaCfg(st) {
 	const areas = st.areas || [];
@@ -323,7 +351,22 @@ function setHoverLever(k) {
 }
 const lamp = (on, color, cls = "") => `<span class="lamp ${cls} ${on ? "on" : ""}" style="--lc:${color}"></span>`;
 
+// the lever board can be closed (operation on the map only), remembered per browser
+function boardClosed() { return localStore("board.closed") === "1"; }
+function renderBoardToggle() {
+	const b = document.getElementById("boardToggle");
+	const closed = boardClosed();
+	document.body.classList.toggle("board-closed", closed);
+	const text = closed ? "▶ てこの盤を開く" : "▼ てこの盤を閉じる";
+	if (b.textContent !== text) b.textContent = text;
+	if (!b.dataset.bound) {
+		b.dataset.bound = "1";
+		b.addEventListener("click", () => { localStore("board.closed", boardClosed() ? "0" : "1"); renderBoardToggle(); });
+	}
+}
+
 function renderRelayBoard() {
+	renderBoardToggle();
 	const box = document.getElementById("relayBoard");
 	const st = station();
 	if (!st || !isRelay()) { box.innerHTML = ""; box.dataset.html = ""; return; }
@@ -506,6 +549,7 @@ function renderStationCfg() {
 		}).join("")}</div>
 		${couplingWarnings(st)}
 		${areaCfg(st)}
+		${rescanCfg(st)}
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;
@@ -518,6 +562,7 @@ function renderStationCfg() {
 		command(cfgCommand(st, { kind }), kind ? "継電連動に切替" : "電子連動に切替");
 	});
 	bindAreaCfg(box, st);
+	box.querySelector("#rescanBtn").addEventListener("click", (e) => { e.currentTarget.blur(); command(`st_rescan,${st.id}`, "配線を読み直す"); });
 	for (const c of box.querySelectorAll("[data-lvshunt]")) c.addEventListener("change", () =>
 		command(`lv_shunt,${st.id},${c.dataset.lvshunt},${c.value}`, "入換てこ"));
 	for (const c of box.querySelectorAll("[data-lvside]")) c.addEventListener("change", () =>

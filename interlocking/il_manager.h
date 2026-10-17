@@ -262,6 +262,10 @@ private:
 	uint32 room_at_end(const il_route_t *r) const;
 	/// checks a tile list "x:y:z;..." from a start point of the station along the track
 	const char *parse_path(il_station_t *st, const char *path, vector_tpl<koord3d> &tiles) const;
+	/// the tiles follow the track in the direction of travel from a start point of the station
+	const char *check_path(const il_station_t *st, const vector_tpl<koord3d> &tiles) const;
+	/// re-reads the track of a station after it was rebuilt in the game (配線を読み直す); summary as an event
+	void rescan_station(il_station_t *st);
 	il_route_t *new_route(il_station_t *st, const vector_tpl<koord3d> &tiles, const char *name, bool temp);
 	/// route from a tile list made on the panel (start lever + destination button)
 	/// extra: with the shunting / calling-on lever of the start (electronic panel; a relay panel knows it from the turned lever)

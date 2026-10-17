@@ -428,6 +428,19 @@ try {
 	await page.click("#relayBoard [data-buzz] .knob");
 	await waitFor(async () => (await page.textContent("#relayBoard [data-buzz]")).includes("切（オフ）"), 5000, "buzzer off");
 	check(true, "the buzzer switch says 入（オン） / 切（オフ）");
+	// the lever board can be closed and opened again
+	await page.click("#boardToggle");
+	await waitFor(async () => !(await page.isVisible("#relayBoard")), 5000, "board closed");
+	check((await page.textContent("#boardToggle")).includes("開く"), "the lever board is closed");
+	await page.click("#boardToggle");
+	await waitFor(async () => await page.isVisible("#relayBoard"), 5000, "board open");
+	check(true, "and opened again");
+	// re-reading the track (配線を読み直す): nothing changed in this game
+	await page.click("nav button[data-tab=setup]");
+	await page.click("#stationCfg #rescanBtn");
+	await waitFor(async () => (await page.locator("#stationCfg [data-rescan]").count()) > 0, 10000, "rescan result");
+	check((await page.textContent("#stationCfg [data-rescan]")).includes("変わったところはありません"), "re-reading the track: nothing changed");
+	await page.click("nav button[data-tab=run]");
 	// operating areas (扱い区分): S1 belongs to 西扱い; this browser takes 東扱い, so S1 is dimmed and cannot be turned
 	const api = (c) => page.evaluate((c) => fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1" }, body: c.replace("ST", station().id) }), c);
 	await api("ar_name,ST,1,東扱い"); await sleep(300); await api("ar_name,ST,2,西扱い"); await sleep(300); await api("ar_pos,ST,3,5,0,2");

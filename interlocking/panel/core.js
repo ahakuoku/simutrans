@@ -181,6 +181,11 @@ function handleEvent(ev) {
 	else if (ev.type === "reset") {
 		log("マップが読み込み直されました");
 	}
+	else if (ev.type === "rescan") {
+		rescanResults.set(ev.station, ev);
+		log("配線を読み直しました：" + rescanSummary(ev).join("、"));
+		refreshTracks().then(render);
+	}
 }
 
 async function rotateAreas() {

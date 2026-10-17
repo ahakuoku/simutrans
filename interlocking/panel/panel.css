@@ -157,6 +157,8 @@ body.relay header h1::after { content: "　継電"; font-size: 12px; color: #9fd
 .rlever.locked { opacity: .8; }
 .rlever.other, #map .mapknob.other, #map g.other { opacity: .38; }
 .linename { display: inline-block; padding: 0 5px; border-radius: 3px; background: var(--accent); color: #fff; font-weight: 700; font-size: .92em; }
+.boardtoggle { width: 100%; text-align: left; margin: 4px 0; }
+body.board-closed #relayBoard { display: none; }
 .onoff { color: #9aa3ad; font-size: .9em; }
 .onoff.on { color: var(--green); }
 .areaname { display: inline-flex; gap: 2px; margin-right: 6px; }

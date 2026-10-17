@@ -1169,6 +1169,19 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 		}
 	}
+	else if(  strcmp(cmd, "st_rescan") == 0  &&  n >= 2  ) {
+		// the track was rebuilt in the game: follow it (配線を読み直す)
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else {
+			rescan_station(st);
+		}
+	}
 	else if(  strcmp(cmd, "ar_name") == 0  &&  n >= 3  ) {
 		// operating area (扱い区分): name area <n> (1 ..), n = count + 1 adds one
 		il_station_t *st = find_station((uint16)atoi(f[1]));
@@ -1689,6 +1702,15 @@ const char *interlocking_manager_t::parse_path(il_station_t *st, const char *pat
 	if(  tiles.get_count() < 2  ||  tiles.get_count() > IL_MAX_ROUTE_TILES  ) {
 		return "bad path";
 	}
+	return check_path(st, tiles);
+}
+
+
+const char *interlocking_manager_t::check_path(const il_station_t *st, const vector_tpl<koord3d> &tiles) const
+{
+	if(  tiles.get_count() < 2  ) {
+		return "bad path";
+	}
 	if(  !is_start_point(st, tiles[0])  ) {
 		return "start is not a registered signal of this station";
 	}
@@ -1712,6 +1734,200 @@ const char *interlocking_manager_t::parse_path(il_station_t *st, const char *pat
 		prev = d;
 	}
 	return NULL;
+}
+
+
+/// all settings of a start point move to another tile (the platform end moved), or go (to = invalid)
+static void move_start_point(il_station_t *st, koord3d from, koord3d to)
+{
+	vector_tpl<koord3d> *lists[] = { &st->pair_left, &st->pair_right, &st->side_pos, &st->shunt_pos, &st->area_pos };
+	for(  uint32 k = 0;  k < 5;  k++  ) {
+		FOR(vector_tpl<koord3d>, &p, *lists[k]) {
+			if(  p == from  ) {
+				p = to;
+			}
+		}
+	}
+	if(  to == koord3d::invalid  ) {
+		remove_pairs(st, koord3d::invalid);
+		remove_side(st, koord3d::invalid);
+		remove_shunt_lever(st, koord3d::invalid);
+		for(  uint32 i = st->area_pos.get_count();  i-- > 0;  ) {
+			if(  st->area_pos[i] == koord3d::invalid  ) {
+				st->area_pos.remove_at(i);
+				st->area_val.remove_at(i);
+			}
+		}
+	}
+	for(  uint32 i = st->slevers.get_count();  i-- > 0;  ) {
+		if(  st->slevers[i]->pos == from  ) {
+			delete st->slevers[i];
+			st->slevers.remove_at(i);
+		}
+	}
+}
+
+
+void interlocking_manager_t::rescan_station(il_station_t *st)
+{
+	cbuffer_t ev;
+	ev.printf("{\"type\":\"rescan\",\"station\":%u", st->id);
+	uint32 sig_gone = 0, dep_gone = 0, dep_moved = 0, lever_gone = 0, siding_gone = 0, busy = 0;
+
+	// 1. signals that were removed in the game
+	for(  uint32 i = st->signals.get_count();  i-- > 0;  ) {
+		const koord3d pos = st->signals[i];
+		if(  get_signal(pos) == NULL  ||  get_rail(pos) == NULL  ) {
+			st->signals.remove_at(i);
+			move_start_point(st, pos, koord3d::invalid);
+			sig_gone++;
+		}
+	}
+	// 2. virtual departure signals: the platform / siding track as it is now
+	for(  uint32 i = st->departures.get_count();  i-- > 0;  ) {
+		il_departure_t *d = st->departures[i];
+		vector_tpl<koord3d> tiles;
+		koord3d anchor = koord3d::invalid;
+		// a platform stays a platform: start from a tile that still belongs to the stop
+		koord3d ref = d->anchor;
+		const grund_t *agr = world()->lookup(d->anchor);
+		if(  agr == NULL  ||  !agr->get_halt().is_bound()  ) {
+			FOR(vector_tpl<koord3d>, const &t, d->tiles) {
+				const grund_t *g = world()->lookup(t);
+				if(  g  &&  g->get_halt().is_bound()  ) {
+					ref = t;
+					break;
+				}
+			}
+		}
+		const char *e = platform_track(ref, tiles, anchor);
+		if(  e  &&  !tiles.empty()  ) {
+			// the old end is no longer an end (shortened / extended): the end of the track nearest to it
+			vector_tpl<koord3d> cand;
+			FOR(vector_tpl<koord3d>, const &t, tiles) {
+				cand.append(t);
+			}
+			while(  e  &&  !cand.empty()  ) {
+				uint32 best = 0;
+				for(  uint32 j = 1;  j < cand.get_count();  j++  ) {
+					if(  koord_distance(cand[j], d->anchor) < koord_distance(cand[best], d->anchor)  ) {
+						best = j;
+					}
+				}
+				const koord3d t = cand[best];
+				cand.remove_at(best);
+				vector_tpl<koord3d> t_tiles;
+				koord3d a = koord3d::invalid;
+				if(  platform_track(t, t_tiles, a) == NULL  &&  a == t  ) {
+					e = NULL;
+					anchor = a;
+					tiles.clear();
+					FOR(vector_tpl<koord3d>, const &x, t_tiles) {
+						tiles.append(x);
+					}
+				}
+			}
+		}
+		bool taken = false;
+		FOR(vector_tpl<il_departure_t *>, od, st->departures) {
+			taken |=  od != d  &&  od->anchor == anchor;
+		}
+		if(  e  ||  taken  ) {
+			move_start_point(st, d->anchor, koord3d::invalid);
+			st->departures.remove_at(i);
+			delete d;
+			dep_gone++;
+			continue;
+		}
+		if(  anchor != d->anchor  ) {
+			move_start_point(st, d->anchor, anchor);
+			FOR(vector_tpl<il_route_t *>, r, routes) {
+				if(  r->station == st->id  &&  r->tiles[0] == d->anchor  &&  r->state == IL_IDLE  ) {
+					r->tiles[0] = anchor; // re-routed below
+				}
+			}
+			d->anchor = anchor;
+			dep_moved++;
+		}
+		d->tiles.clear();
+		FOR(vector_tpl<koord3d>, const &t, tiles) {
+			d->tiles.append(t);
+		}
+	}
+	// 3. point levers and points of points that are gone (or have other legs now)
+	for(  uint32 i = st->levers.get_count();  i-- > 0;  ) {
+		const il_lever_t *lv = st->levers[i];
+		const grund_t *gr = world()->lookup(lv->pos);
+		const weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+		bool ok = w  &&  ribi_t::is_threeway(w->get_ribi_unmasked());
+		for(  uint32 j = 0;  ok  &&  j < lv->pairs.get_count();  j++  ) {
+			ok = (lv->pairs[j] & ~w->get_ribi_unmasked()) == 0;
+		}
+		if(  !ok  ) {
+			delete st->levers[i];
+			st->levers.remove_at(i);
+			lever_gone++;
+		}
+	}
+	for(  uint32 i = st->points.get_count();  i-- > 0;  ) {
+		const grund_t *gr = world()->lookup(st->points[i]->pos);
+		const weg_t *w = gr ? gr->get_weg(track_wt) : NULL;
+		if(  w == NULL  ||  !ribi_t::is_threeway(w->get_ribi_unmasked())  ) {
+			delete st->points[i];
+			st->points.remove_at(i);
+		}
+	}
+	// 4. other stops used as sidings that are gone
+	for(  uint32 i = st->siding_halts.get_count();  i-- > 0;  ) {
+		const grund_t *gr = world()->lookup(st->siding_halts[i]);
+		if(  gr == NULL  ||  !gr->get_halt().is_bound()  ) {
+			st->siding_halts.remove_at(i);
+			siding_gone++;
+		}
+	}
+	ev.printf(",\"signals_removed\":%u,\"departures_removed\":%u,\"departures_moved\":%u,\"levers_removed\":%u,\"sidings_removed\":%u",
+		sig_gone, dep_gone, dep_moved, lever_gone, siding_gone);
+
+	// 5. routes: removed with their start point; along the track as it is now, else between the same ends
+	cbuffer_t rerouted, broken, removed;
+	for(  uint32 i = routes.get_count();  i-- > 0;  ) {
+		il_route_t *r = routes[i];
+		if(  r->station != st->id  ) {
+			continue;
+		}
+		if(  r->state != IL_IDLE  ) {
+			busy += check_path(st, r->tiles) != NULL;
+			continue;
+		}
+		cbuffer_t *list = NULL;
+		if(  !is_start_point(st, r->tiles[0])  ) {
+			list = &removed;
+		}
+		else if(  check_path(st, r->tiles)  ) {
+			vector_tpl<koord3d> tiles;
+			if(  find_path(r->tiles[0], r->tiles.back(), tiles)  &&  check_path(st, tiles) == NULL  ) {
+				r->tiles.clear();
+				FOR(vector_tpl<koord3d>, const &t, tiles) {
+					r->tiles.append(t);
+				}
+				list = &rerouted;
+			}
+			else {
+				list = &broken;
+			}
+		}
+		if(  list  ) {
+			list->append(list->len() ? "," : "");
+			append_json_string(*list, r->name.c_str());
+		}
+		if(  list == &removed  ) {
+			routes.remove_at(i);
+			delete r;
+		}
+	}
+	ev.printf(",\"routes_rerouted\":[%s],\"routes_broken\":[%s],\"routes_removed\":[%s],\"routes_busy\":%u}",
+		rerouted.get_str(), broken.get_str(), removed.get_str(), busy);
+	push_event(ev);
 }
 
 

@@ -309,6 +309,34 @@ static void handle_line(client_t &c, char *line)
 			answer.append("{\"type\":\"debug_tool\",\"ok\":true}");
 		}
 	}
+	else if(  getenv("TID_IL_DEBUG")  &&  strncmp(line, "debug_work ", 11) == 0  ) {
+		// test helper (only with TID_IL_DEBUG set): a general tool at a position, as a click on the map
+		// ("debug_work <tool index> x,y,z [default param]", e.g. remove a signal)
+		int id = -1, x = 0, y = 0, z = 0, used = 0;
+		karte_t *welt = world();
+		if(  sscanf(line + 11, "%d %d,%d,%d%n", &id, &x, &y, &z, &used) < 4  ||  id < 0  ||  id >= GENERAL_TOOL_COUNT  ||  tool_t::general_tool[id] == NULL  ||  welt == NULL  ) {
+			answer.append("{\"type\":\"error\",\"error\":\"invalid tool\"}");
+		}
+		else {
+			const char *param = line + 11 + used;
+			while(  *param == ' '  ) {
+				param++;
+			}
+			strncpy(tool_param, param, sizeof(tool_param) - 1);
+			tool_param[sizeof(tool_param) - 1] = 0;
+			tool_t *tool = tool_t::general_tool[id];
+			tool->set_default_param(*tool_param ? tool_param : NULL);
+			// keep a selected tool: a two-click tool (e.g. removing signals) needs both clicks
+			if(  welt->get_tool(welt->get_active_player_nr()) != tool  ) {
+				welt->set_tool(tool, welt->get_active_player());
+			}
+			bool suspended = false;
+			const char *err = welt->call_work(tool, welt->get_active_player(), koord3d((sint16)x, (sint16)y, (sint8)z), suspended);
+			answer.append("{\"type\":\"debug_work\",\"ok\":");
+			answer.append(err  &&  *err ? "false" : "true");
+			answer.append("}");
+		}
+	}
 	else if(  getenv("TID_IL_DEBUG")  &&  strcmp(line, "debug_convoys") == 0  ) {
 		// test helper (only with TID_IL_DEBUG set): list all convoys
 		answer.append("{\"type\":\"convoys\",\"convoys\":[");
