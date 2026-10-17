@@ -325,12 +325,12 @@ function renderCustom() {
 			const at = gridOfTile(parts, k);
 			return at ? [X(at[0]), Y(at[1])] : null;
 		};
-		drawMarks(g, st, placeOf, sc);
 		const targets = [];
 		for (const p of parts) {
 			if ("SP".includes(p.t) && p.b && p.b[0]) targets.push([p.b[0], X(p.x1), Y(p.y1)]);
 			if (p.t === "T") (p.b || []).forEach((t, i) => { const f = p.b.length > 1 ? i / (p.b.length - 1) : .5; targets.push([t, X(p.x1 + (p.x2 - p.x1) * f), Y(p.y1 + (p.y2 - p.y1) * f)]); });
 		}
+		drawMarks(g, st, placeOf, sc, targets);
 		drawMarkTargets(g, targets, sc);
 	}
 	if (cpEdit) bindEditor(svg, g, G);

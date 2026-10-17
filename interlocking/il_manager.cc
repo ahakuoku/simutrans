@@ -1271,6 +1271,33 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			st->marks.append(m);
 		}
 	}
+	else if(  strcmp(cmd, "mk_mov") == 0  &&  n >= 6  ) {
+		// a magnet or a memo dragged to another tile: mk_mov,<station>,<id>,x,y,z
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const uint16 id = (uint16)atoi(f[2]);
+		const koord3d pos((sint16)atoi(f[3]), (sint16)atoi(f[4]), (sint8)atoi(f[5]));
+		il_mark_t *m = NULL;
+		for(  uint32 i = 0;  st  &&  i < st->marks.get_count();  i++  ) {
+			if(  st->marks[i]->id == id  ) {
+				m = st->marks[i];
+			}
+		}
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  m == NULL  ) {
+			error = "magnet not found";
+		}
+		else if(  world()->lookup(pos) == NULL  ) {
+			error = "no track at this position";
+		}
+		else {
+			m->pos = pos;
+		}
+	}
 	else if(  strcmp(cmd, "mk_del") == 0  &&  n >= 3  ) {
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		const uint16 id = (uint16)atoi(f[2]);

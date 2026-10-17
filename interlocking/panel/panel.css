@@ -162,6 +162,8 @@ body.relay header h1::after { content: "　継電"; font-size: 12px; color: #9fd
 #map .cphandle { cursor: crosshair; }
 .cpedit { color: var(--yellow); font-weight: 700; margin-right: 6px; }
 .marklist { max-height: 160px; overflow: auto; }
+#map .mark { cursor: grab; touch-action: none; }
+#map .mark.dragging { cursor: grabbing; opacity: .85; }
 .marklist .row { flex-wrap: nowrap; }
 .marklist .hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .marklist [class^="mk-"] { padding: 0 5px; border-radius: 3px; color: #fff; font-weight: 700; font-size: .9em; white-space: nowrap; }

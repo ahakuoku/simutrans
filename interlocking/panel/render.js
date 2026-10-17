@@ -57,6 +57,7 @@ function routeStateOfTiles() {
 }
 
 function renderMap() {
+	if (markDragging) return;   // a magnet is being dragged
 	const svg = document.getElementById("map");
 	const a = currentArea();
 	document.getElementById("mapEmpty").style.display = a ? "none" : "block";
@@ -302,8 +303,9 @@ function renderMap() {
 	if (st && cpEdit && cpEdit.pick) drawPickTargets(g, st, tiles, cx, cy, sc);
 	// magnets and memos, and (with a tool chosen) where they can be put
 	else if (st && tab === "run") {
-		drawMarks(g, st, (p) => { const t = tileIndex.get(key(p)); return t && isVisible(t) ? [cx(t.p), cy(t.p)] : null; }, sc);
-		drawMarkTargets(g, tiles.filter(t => isVisible(t) && t.r).map(t => [t.p, cx(t.p), cy(t.p)]), sc);
+		const spots = tiles.filter(t => isVisible(t) && t.r).map(t => [t.p, cx(t.p), cy(t.p)]);
+		drawMarks(g, st, (p) => { const t = tileIndex.get(key(p)); return t && isVisible(t) ? [cx(t.p), cy(t.p)] : null; }, sc, spots);
+		drawMarkTargets(g, spots, sc);
 	}
 	// the signal pointed at in a list of the setup tab
 	if (hoverSignal) {

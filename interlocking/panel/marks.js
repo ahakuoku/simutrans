@@ -7,6 +7,7 @@ let markTool = null;          // null, "X", "M", "O" or "del"
 let markText = "回送";        // text of the next tag
 let markColor = 0;
 let openMemo = null;          // id of the memo shown open
+let markDragging = false;     // a magnet is being dragged: the map is not drawn again meanwhile
 const MARK_COLORS = ["#2f6fdf", "#e0a100", "#1f9d55", "#c2410c", "#7c3aed"];
 const MARK_WORDS = ["回送", "臨時", "試運転", "保守", "工事", "注意", "徐行"];
 const markTextOf = (m) => { try { return decodeURIComponent(m.s || ""); } catch (e) { return m.s || ""; } };
@@ -49,8 +50,9 @@ function markClicked(pos) {
 	return true;
 }
 
-// magnets and memos on the drawing; at(pos) gives the place on the drawing (or null)
-function drawMarks(g, st, at, sc) {
+// magnets and memos on the drawing; at(pos) gives the place on the drawing (or null), targets the tiles
+// a magnet may be dragged to ([pos, x, y] on the drawing)
+function drawMarks(g, st, at, sc, targets = []) {
 	if (!st || !st.marks) return;
 	const count = new Map();
 	for (const m of st.marks) {
@@ -75,9 +77,41 @@ function drawMarks(g, st, at, sc) {
 			lines.forEach((l, i) => { el("text", { x: x - 2, y: y + fs * 2.2 + i * fs * 1.3, "font-size": fs, fill: "#3d3200" }, grp).textContent = l; });
 			el("text", { x: x - 2, y: y + fs * 2.2 + lines.length * fs * 1.3 + 2, "font-size": fs * .85, fill: "#7a6a20" }, grp).textContent = `${monthText(m.m)} ${companyName(m.o)}`;
 		}
-		grp.appendChild(el("title", {})).textContent = (m.k === "X" ? "使用停止（ここを通る進路は取れません）" : m.k === "O" ? "メモ：" + markTextOf(m) : "札：" + markTextOf(m)) + `　${monthText(m.m)} ${companyName(m.o)}` + (markTool === "del" ? "（押すとはがす）" : "");
+		grp.appendChild(el("title", {})).textContent = (m.k === "X" ? "使用停止（ここを通る進路は取れません）" : m.k === "O" ? "メモ：" + markTextOf(m) : "札：" + markTextOf(m)) + `　${monthText(m.m)} ${companyName(m.o)}` + (markTool === "del" ? "（押すとはがす）" : "（ドラッグでほかの線路・信号・ポイントへ移せる）");
+		let drag = null;
+		grp.addEventListener("pointerdown", (e) => {
+			if (markTool === "del" || e.button !== 0) return;
+			e.stopPropagation();
+			drag = { x: e.clientX, y: e.clientY, moved: false };
+			grp.setPointerCapture(e.pointerId);
+		});
+		grp.addEventListener("pointermove", (e) => {
+			if (!drag) return;
+			if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) return;
+			drag.moved = markDragging = true;
+			// the drawing may be scaled: move by the distance on the drawing
+			const k = 1 / (g.getScreenCTM() ? g.getScreenCTM().a : 1);
+			drag.dx = (e.clientX - drag.x) * k; drag.dy = (e.clientY - drag.y) * k;
+			grp.setAttribute("transform", `translate(${drag.dx} ${drag.dy})`);
+			grp.classList.add("dragging");
+		});
+		grp.addEventListener("pointerup", (e) => {
+			if (!drag) return;
+			const d = drag;
+			drag = null;
+			markDragging = false;
+			if (!d.moved) return;
+			grp.dataset.dragged = "1";
+			// dropped: onto the nearest tile it may lie on (near enough), else back where it was
+			const tx = p[0] + d.dx, ty = p[1] + d.dy;
+			let best = null, bd = Infinity;
+			for (const t of targets) { const dd = Math.hypot(t[1] - tx, t[2] - ty); if (dd < bd) { bd = dd; best = t; } }
+			if (best && bd < 24 * sc && key(best[0]) !== key(m.pos)) command(`mk_mov,${st.id},${m.id},${best[0].join(",")}`, (m.k === "X" ? "使用停止" : m.k === "O" ? "メモ" : "札") + " を移す");
+			render();
+		});
 		grp.addEventListener("click", (e) => {
 			e.stopPropagation();
+			if (grp.dataset.dragged) { delete grp.dataset.dragged; return; }
 			if (markTool === "del") { command(`mk_del,${st.id},${m.id}`, "はがす"); return; }
 			if (m.k === "O") { openMemo = openMemo === m.id ? null : m.id; render(); }
 		});

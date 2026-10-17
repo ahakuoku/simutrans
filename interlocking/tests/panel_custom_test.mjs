@@ -258,6 +258,18 @@ try {
 	const nm = await page.locator("#map [data-mark]").count();
 	check(nm === 2, `the tag and the memo are on the track plan, too (${nm})`);
 	await page.screenshot({ path: path.join(shots, "plan_marks.png") });
+	// drag the tag 保守 from (6,5) to (8,5) with the mouse
+	const tagId = (await st()).stations[0].marks.find(m => m.k === "M").id;
+	const center = async (loc) => { const b = await loc.boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+	const tileAt = (x, y) => page.locator(`#map rect:has(title:has-text("(${x}, ${y}, 0)"))`).first();
+	const [mx, my] = await center(page.locator(`#map [data-mark='${tagId}'] rect`).first());
+	const [ax, ay] = await center(tileAt(6, 5)), [bx, by] = await center(tileAt(8, 5));
+	await page.mouse.move(mx, my); await page.mouse.down();
+	await page.mouse.move(mx + (bx - ax) / 2, my + (by - ay) / 2, { steps: 4 });
+	await page.mouse.move(mx + bx - ax, my + by - ay, { steps: 4 });
+	await page.mouse.up();
+	await waitFor(async () => (await st()).stations[0].marks.find(m => m.id === tagId).pos.join(",") === "8,5,0", 8000, "tag moved");
+	check(true, "the tag is dragged to (8,5) with the mouse");
 	await browser.close();
 } finally { game.kill(); }
 console.log(failed ? "TEST FAILED" : "ALL CUSTOM PANEL TESTS PASSED");

@@ -55,6 +55,15 @@ def run(args):
         check(len(ms) == 5 and tag["s"] == "%E5%9B%9E%E9%80%81" and tag["c"] == 1 and tag["pos"] == [6, 5, 0], f"tag kept: {tag}")
         check(memo["s"] == "%E7%82%B9%E6%A4%9C%E4%B8%AD%2C%20%E6%B3%A8%E6%84%8F" and memo["m"] > 0, f"memo kept with its month: {memo}")
 
+        check(p.cmd(f"mk_mov,{sid},{tag['id']},8,5,0")["ok"], "the tag dragged to (8,5)")
+        check(next(m for m in marks() if m["id"] == tag["id"])["pos"] == [8, 5, 0], "it lies there now")
+        check(not p.cmd(f"mk_mov,{sid},9999,8,5,0")["ok"], "an unknown magnet cannot be moved")
+        x5 = next(m for m in marks() if m["k"] == "X" and m["pos"] == [5, 5, 0])
+        check(p.cmd(f"mk_mov,{sid},{x5['id']},10,5,0")["ok"], "使用停止 moved from (5,5) to (10,5)")
+        r = p.cmd(f"set,{rid}")
+        check(not r["ok"] and r["error"] == "out of use (magnet)", "the route S1 -> platform 1 is still blocked (S1 and (4,5) still have one)")
+        check(p.cmd(f"mk_mov,{sid},{x5['id']},5,5,0")["ok"], "and back")
+
         print("[3] removed")
         for m in ms:
             if m["k"] == "X":
