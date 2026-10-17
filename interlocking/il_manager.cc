@@ -3102,6 +3102,8 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 	buf.append("{\"type\":\"status\",\"date\":");
 	append_json_string(buf, world() ? tick_to_string(world()->get_ticks()) : "");
 	buf.printf(",\"month\":%u", world() ? (uint32)world()->get_current_month() : 0u);
+	// time of day as in OTRP: one month is one day (ticks of this month / ticks of a month)
+	buf.printf(",\"tick_m\":%u,\"tpm\":%u", world() ? (uint32)(world()->get_ticks() % world()->ticks_per_world_month) : 0u, world() ? (uint32)world()->ticks_per_world_month : 1u);
 	buf.append(",\"stations\":[");
 	bool first = true;
 	FOR(vector_tpl<il_station_t *>, st, stations) {

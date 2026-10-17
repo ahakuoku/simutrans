@@ -18,7 +18,7 @@
 | メソッド・パス | 内容 |
 |---|---|
 | `GET /` | 盤の画面（`index.html`）。下の「盤のファイル」から読む |
-| `GET /api/status` | 行単位の `status` と同じ（先頭に `date`＝ゲームの日時の文字、`month`＝ゲームの月） |
+| `GET /api/status` | 行単位の `status` と同じ（先頭に `date`＝ゲームの日時の文字、`month`＝ゲームの月、`tick_m`＝この月の経過 tick、`tpm`＝1 か月の tick 数。1 か月＝1 日の時刻は `tick_m / tpm`） |
 | `GET /api/events?since=N` | 通番 N より後のイベント。`{"last":M,"events":[...]}` |
 | `GET /api/tracks?x1=&y1=&x2=&y2=` | 範囲内の線路（配線略図用、下記） |
 | `GET /api/halts` | 鉄道のホームがある駅の一覧（`id`、`name`、`owner`、`tiles`） |

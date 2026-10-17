@@ -10,6 +10,13 @@ const customPanels = new Map();   // station id -> { rev, parts }
 const PANEL_COLORS = [["標準", "transparent"], ["緑盤", "#203a2c"], ["灰盤", "#3b4044"], ["紺", "#1b2a44"], ["黒", "#07090c"]];
 const FRAME_COLORS = ["#4a90d9", "#e0a100", "#3fbf6f", "#e0603a", "#a06ee0"];
 const styleOf = (parts) => parts.find(p => p.t === "Y") || { f: 0 };
+// time of day as in OTRP (one month = one day): "HH:MM:SS" and "minute/1440"
+function clockOf(s) {
+	if (!s || !s.tpm) return { hms: "--:--:--", min: "----/1440" };
+	const sec = Math.floor(s.tick_m * 86400 / s.tpm);
+	const two = (n) => String(n).padStart(2, "0");
+	return { hms: `${two(Math.floor(sec / 3600))}:${two(Math.floor(sec / 60) % 60)}:${two(sec % 60)}`, min: `${Math.floor(s.tick_m * 1440 / s.tpm)}/1440` };
+}
 let cpEdit = null;                // editing: { parts, sel, tool }
 let cpFetching = 0;
 
@@ -278,10 +285,12 @@ function renderCustom() {
 			if (p.s) el("text", { x: x + 6, y: y + 14, "font-size": 11, "font-weight": 700, fill: c }, grp).textContent = partText(p);
 		}
 		else if (p.t === "C") {
-			const txt = status.date || "--:--";
-			const w = [...txt].reduce((s, c) => s + (c.charCodeAt(0) > 255 ? 13 : 8), 0) + 14;
-			el("rect", { x: X(p.x1) - w / 2, y: Y(p.y1) - 12, width: w, height: 24, rx: 4, fill: "#05080a", stroke: "#3a4558" }, grp);
-			el("text", { x: X(p.x1), y: Y(p.y1) + 5, "font-size": 13, "font-family": "monospace", fill: "#7CFC8A", "text-anchor": "middle" }, grp).textContent = txt;
+			// time of day (one month = one day): HH:MM:SS and the minute of the day out of 1440
+			const ck = clockOf(status);
+			const w = 104, x = X(p.x1), y = Y(p.y1);
+			el("rect", { x: x - w / 2, y: y - 20, width: w, height: 40, rx: 4, fill: "#05080a", stroke: "#3a4558" }, grp);
+			el("text", { x, y: y + 1, "font-size": 17, "font-family": "monospace", "font-weight": 700, fill: "#7CFC8A", "text-anchor": "middle" }, grp).textContent = ck.hms;
+			el("text", { x, y: y + 15, "font-size": 11, "font-family": "monospace", fill: "#5fbf6a", "text-anchor": "middle" }, grp).textContent = ck.min;
 		}
 		else if (p.t === "K") {
 			// north as the track plan was turned when the panel was drafted

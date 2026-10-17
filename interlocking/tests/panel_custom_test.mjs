@@ -128,6 +128,13 @@ try {
 	check(["A", "F", "C", "K"].every(t => dp.some(p => p.t === t)), "arrow, frame, clock and compass saved");
 	check(dp.some(p => p.t === "A" && decodeURIComponent(p.s) === "至 東京") && dp.some(p => p.t === "F" && decodeURIComponent(p.s) === "東扱い"), "their texts saved");
 	check(dp.some(p => p.t === "Y" && (p.f >> 4) === 1), "the colour of the panel saved (緑盤)");
+	await sleep(1500);
+	const clock = await page.$$eval("#map text", ts => ts.map(t => t.textContent).filter(t => /^\d\d:\d\d:\d\d$|^\d+\/1440$/.test(t)));
+	const s0 = await st();
+	check(clock.length === 2 && s0.tpm > 0, `the clock shows HH:MM:SS and the minute of the day out of 1440: ${clock.join("  ")}`);
+	const [h, m] = clock[0].split(":").map(Number), n = Number(clock[1].split("/")[0]);
+	check(n === h * 60 + m, "both tell the same time");
+	await page.locator("#map").screenshot({ path: path.join(shots, "custom_clock.png"), clip: undefined });
 
 	console.log("[7] magnets and memos on the custom panel");
 	await page.click("#markBar [data-mtool=X]");
