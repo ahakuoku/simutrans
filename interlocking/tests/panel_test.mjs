@@ -284,6 +284,18 @@ try {
 	await page.waitForFunction(() => document.body.classList.contains("relay"), null, { timeout: 10000 });
 	check(true, "switched to relay from the setup tab, panel in relay colours");
 	check(!(await page.isVisible("#btnAutoRoutes")), "auto routes hidden on a relay panel");
+	// all further companies at once (two more companies made up in the browser: the scenario has one)
+	await page.evaluate(() => { info.players = info.players.concat([{ nr: 5, name: "会社5" }, { nr: 6, name: "会社6" }]); renderSetup(); });
+	const opCount = await page.locator("#stationCfg [data-op]").count();
+	if (opCount > 1) {
+		await page.click("[data-opall='1']");
+		await waitFor(async () => ((await stA()).operators || []).length === opCount, 10000, "all companies checked");
+		check(true, `"すべてチェック": all ${opCount} further companies may operate`);
+		await page.click("[data-opall='0']");
+		await waitFor(async () => ((await stA()).operators || []).length === 0, 10000, "all unchecked");
+		check(true, `"すべて外す": the owner only`);
+	}
+	else console.log(`  (only ${opCount} further company: no "すべてチェック")`);
 	await page.click("nav button[data-tab=run]");
 	await page.waitForSelector("#relayBoard .rlever[data-sl='3,5,0']");
 	check(!(await page.isVisible("#levers")), "shortcuts hidden on a relay panel");
@@ -291,6 +303,17 @@ try {
 	check(levers.includes("1") && levers.includes("21") && levers.includes("停"), "levers on the board: " + levers.join(" "));
 	await page.screenshot({ path: path.join(shots, "5_relay.png") });
 	check(!(await page.isEnabled("#relayBoard .rlever[data-sl='3,5,0'] [data-side=L]")), "lever 1 (eastbound) cannot be turned to the left");
+	// a finger on a lever: the board is not drawn anew until the tap is done (the tap would be lost)
+	check(await page.evaluate(() => {
+		const k = document.querySelector("#relayBoard .rlever[data-sl='3,5,0'] .knob");
+		k.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+		document.getElementById("relayBoard").dataset.html = "";
+		renderFromGame();
+		const same = document.querySelector("#relayBoard .rlever[data-sl='3,5,0'] .knob") === k;
+		k.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" }));
+		return same;
+	}), "a tap on a lever is not lost by the panel being drawn anew meanwhile");
+	await sleep(400);
 	// signal lever 1 (S1, eastbound): turn to the right, then press the destination button
 	await page.click("#relayBoard .rlever[data-sl='3,5,0'] [data-side=R]");
 	await waitFor(async () => ((await stA()).slevers || []).some(l => l.pos.join(",") === "3,5,0" && l.side === "R"), 10000, "lever turned");

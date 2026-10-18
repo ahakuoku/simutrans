@@ -12,6 +12,29 @@ function el(name, attrs, parent) {
 	return e;
 }
 
+// a finger or the mouse is on a lever or button: the panel is not drawn again for the game until its click is done.
+// The panel is drawn anew every 0.6 s; a click whose button was replaced between press and release is
+// lost, which made levers feel slow on touch screens (a tap lasts longer than a mouse click).
+let pressHeld = 0, pressUntil = 0, renderLater = null;
+document.addEventListener("pointerdown", (e) => {
+	if (cpEdit || !e.target.closest || !e.target.closest("button, .rlever, .clickable, select")) return;
+	pressHeld = performance.now();
+}, true);
+const pressDone = () => { if (pressHeld) { pressHeld = 0; pressUntil = performance.now() + 150; } };
+document.addEventListener("pointerup", pressDone, true);
+document.addEventListener("pointercancel", pressDone, true);
+function pressing() {
+	const now = performance.now();
+	if (pressHeld && now - pressHeld > 2000) pressHeld = 0;   // a release outside the window
+	return pressHeld || now < pressUntil;
+}
+
+// drawing anew for the game's state (not for what was just pressed): waits until the press is done
+function renderFromGame() {
+	if (!pressing()) { render(); return; }
+	if (!renderLater) renderLater = setTimeout(() => { renderLater = null; renderFromGame(); }, 120);
+}
+
 function render() {
 	document.body.classList.toggle("relay", isRelay());
 	// the approach buzzer listens on every tab (not only while the relay board is shown)

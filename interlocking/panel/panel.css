@@ -36,6 +36,8 @@ select, input, button {
 }
 input[type=number] { width: 70px; }
 button { cursor: pointer; }
+/* no wait for a double tap (zoom) on touch screens */
+button, .rlever, .clickable { touch-action: manipulation; }
 button:hover { border-color: var(--accent); }
 button.primary { background: #1f4f86; border-color: #2c6cb5; }
 button.danger { background: #5a1f24; border-color: #8a2d34; }

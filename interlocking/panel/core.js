@@ -443,7 +443,7 @@ async function loop() {
 		// the company the game operates with (the player may switch companies in the game)
 		if (++infoTick % 4 === 0) { try { info = await api("/api/info"); } catch (e) {} }
 		setConnected(true);
-		render();
+		renderFromGame();
 	} catch (e) {
 		setConnected(false);
 	}

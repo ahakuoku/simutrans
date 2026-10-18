@@ -552,6 +552,7 @@ function renderStationCfg() {
 		${areaCfg(st)}
 		${rescanCfg(st)}
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
+		${others.length > 1 ? `<div class="row"><button data-opall="1" title="ほかの会社をすべて操作できるようにする">すべてチェック</button><button data-opall="0" title="所有の会社だけが操作できるようにする">すべて外す</button></div>` : ""}
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;
 	// not while typing or choosing in it (a pressed button does not keep it from being drawn again)
@@ -583,6 +584,11 @@ function renderStationCfg() {
 	for (const c of box.querySelectorAll("[data-op]")) c.addEventListener("change", () => {
 		const ops = [...box.querySelectorAll("[data-op]")].filter(x => x.checked).map(x => x.dataset.op);
 		command(`st_ops,${st.id},${ops.join(".")}`, "操作できる会社");
+	});
+	for (const b of box.querySelectorAll("[data-opall]")) b.addEventListener("click", (e) => {
+		e.currentTarget.blur();
+		const ops = b.dataset.opall === "1" ? [...box.querySelectorAll("[data-op]")].map(x => x.dataset.op) : [];
+		command(`st_ops,${st.id},${ops.join(".")}`, b.dataset.opall === "1" ? "操作できる会社をすべてチェック" : "操作できる会社をすべて外す");
 	});
 }
 
