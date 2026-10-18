@@ -436,6 +436,12 @@ def run(args):
         check(p.status()["stations"][0]["parts"] == 3 and [x["t"] for x in pn["parts"]] == ["T", "S", "L"], f"custom panel stored: {[x['t'] for x in pn['parts']]}")
         check(pn["parts"][0]["b"] == [[3, 5, 0], [4, 5, 0], [5, 5, 0]] and pn["parts"][2]["s"] == "%E4%B8%8A%E3%82%8A", "tiles and text kept")
 
+        check(p.cmd("st_newh,77,Testeki")["ok"], "a station made for the stop 77")
+        r = p.cmd("st_newh,77,Testeki")
+        check(not r["ok"] and r["error"] == "this stop already has an interlocking panel", "a second panel for the same stop is refused")
+        dup = [x for x in p.status()["stations"] if x.get("name") == "Testeki"]
+        check(len(dup) == 1, "only one")
+        check(p.cmd(f"st_del,{dup[0]['id']}")["ok"], "removed again")
         check(p.cmd(f"st_view,{sid},1,2,13,9,0")["ok"], "the area of the panel kept in the game")
         check(not p.cmd(f"st_view,{sid},5,5,2,2,0")["ok"], "a bad area is refused")
         check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, 0], "everybody gets the same area")

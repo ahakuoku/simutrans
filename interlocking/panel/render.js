@@ -637,15 +637,19 @@ function renderSetup() {
 	const ownerFilter = os.value;
 	// stations: by company, then by name
 	const hs = document.getElementById("haltSel");
-	const sorted = halts.filter(h => ownerFilter === "all" || String(h.owner) === ownerFilter)
+	// the search: part of the name, hiragana and katakana alike, full / half width alike
+	const fold = (s) => String(s || "").normalize("NFKC").toLowerCase().replace(/[\u30a1-\u30f6]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+	const q = fold(document.getElementById("haltSearch").value.trim());
+	const sorted = halts.filter(h => (ownerFilter === "all" || String(h.owner) === ownerFilter) && (!q || fold(h.name).includes(q)))
 		.sort((a, b) => a.owner - b.owner || a.name.localeCompare(b.name, "ja"));
+	const hasPanel = (h) => status.stations.some(s => s.view && s.view[4] === h.id);
 	let opts = "";
 	for (const o of owners) {
 		const hsOf = sorted.filter(h => h.owner === o);
 		if (!hsOf.length) continue;
-		opts += `<optgroup label="${esc(companyName(o))}">` + hsOf.map(h => `<option value="${h.id}">${esc(h.name)}（${h.tiles.length}マス）</option>`).join("") + `</optgroup>`;
+		opts += `<optgroup label="${esc(companyName(o))}">` + hsOf.map(h => `<option value="${h.id}" ${hasPanel(h) ? "disabled" : ""}>${esc(h.name)}（${h.tiles.length}マス）${hasPanel(h) ? "　連動盤あり" : ""}</option>`).join("") + `</optgroup>`;
 	}
-	if (hs.dataset.opts !== opts) { const v = hs.value; hs.innerHTML = opts || "<option value=''>鉄道駅がありません</option>"; hs.dataset.opts = opts; if (v) hs.value = v; }
+	if (hs.dataset.opts !== opts) { const v = hs.value; hs.innerHTML = opts || `<option value=''>${q ? "見つかりません" : "鉄道駅がありません"}</option>`; hs.dataset.opts = opts; if (v) hs.value = v; }
 	// area inputs (do not overwrite while editing)
 	const a = currentArea();
 	for (const [id, v] of [["ax1", a?.x1], ["ax2", a?.x2], ["ay1", a?.y1], ["ay2", a?.y2]]) {

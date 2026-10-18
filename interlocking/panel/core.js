@@ -60,6 +60,7 @@ const ERRORS = {
 	"the signal already has a lever pair": "その信号は、すでにほかの信号とまとめてあります",
 	"no lever pair": "まとめてあるてこではありません",
 	"another lever is waiting for its destination": "ほかの信号てこが着点待ちです。先に着点ボタンを押すか、そのてこを定位に戻してください",
+	"this stop already has an interlocking panel": "この駅にはもう連動盤があります（上の駅の一覧から選べます）",
 	"out of use (magnet)": "使用停止のマグネットが貼られています（はがすと扱えます）",
 	"magnet not found": "そのマグネット・メモはもうありません",
 	"too many magnets": "マグネット・メモが多すぎます（文字が長すぎることもあります）",
@@ -582,7 +583,9 @@ function signalLabel(st, pos) {
 	}
 	if (d) {
 		const g = layout.groupOf.has(key(pos)) ? layout.groupOf.get(key(pos)) : -1;
-		return (g >= 0 ? platformName(st, g) : "番線") + "出発";
+		// a platform that can be left at both ends: name the end (the direction trains leave to)
+		const both = g >= 0 && (st.departures || []).some(x => x !== d && layout.groupOf.get(key(x.pos)) === g);
+		return (g >= 0 ? platformName(st, g) : "番線") + "出発" + (both ? `（${dirName(startTravelDir(st, pos))}）` : "");
 	}
 	return "信号";
 }

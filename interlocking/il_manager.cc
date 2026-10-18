@@ -853,6 +853,9 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	if(  strncmp(buf, "st_new,", 7) == 0  ) {
 		max_fields = 2;
 	}
+	else if(  strncmp(buf, "st_newh,", 8) == 0  ) {
+		max_fields = 3;
+	}
 	else if(  strncmp(buf, "rt_def,", 7) == 0  ) {
 		max_fields = 9;
 	}
@@ -876,7 +879,34 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	const char *cmd = f[0];
 	const char *error = NULL;
 
-	if(  strcmp(cmd, "st_new") == 0  &&  n >= 2  ) {
+	if(  strcmp(cmd, "st_newh") == 0  &&  n >= 3  ) {
+		// a station for a stop: st_newh,<stop id>,<name>; one interlocking panel per stop
+		const uint16 halt = (uint16)atoi(f[1]);
+		il_station_t *other = NULL;
+		FOR(vector_tpl<il_station_t *>, o, stations) {
+			if(  halt  &&  o->view_halt == halt  ) {
+				other = o;
+			}
+		}
+		if(  other  ) {
+			error = "this stop already has an interlocking panel";
+		}
+		else {
+			il_station_t *st = new il_station_t();
+			st->id = next_id++;
+			st->name = f[2];
+			st->owner = player ? player->get_player_nr() : 1;
+			st->manual = false;
+			st->view_halt = halt;
+			stations.append(st);
+			cbuffer_t ev;
+			ev.printf("{\"type\":\"station\",\"id\":%u,\"name\":", st->id);
+			append_json_string(ev, st->name.c_str());
+			ev.append("}");
+			push_event(ev);
+		}
+	}
+	else if(  strcmp(cmd, "st_new") == 0  &&  n >= 2  ) {
 		il_station_t *st = new il_station_t();
 		st->id = next_id++;
 		st->name = f[1];

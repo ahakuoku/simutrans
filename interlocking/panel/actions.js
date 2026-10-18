@@ -53,10 +53,12 @@ let pendingStation = null;
 async function newStation() {
 	const h = halts.find(x => x.id === Number(document.getElementById("haltSel").value));
 	if (!h) { toast("駅を選んでください"); return; }
+	const has = status.stations.find(s => s.view && s.view[4] === h.id);
+	if (has) { toast(`「${h.name}」にはもう連動盤があります（上の駅の一覧から選べます）`, true); stationId = has.id; localStore("station", stationId); render(); return; }
 	const area = boxAround(h.tiles, 10);
 	area.halt = h.id;
 	const got = new Promise((resolve) => { pendingStation = resolve; setTimeout(() => resolve(null), 15000); });
-	command("st_new," + h.name, "連動駅の作成 " + h.name);
+	command(`st_newh,${h.id},${h.name}`, "連動駅の作成 " + h.name);
 	const ev = await got;
 	pendingStation = null;
 	if (!ev) return;
@@ -205,6 +207,7 @@ for (const b of document.querySelectorAll("nav button")) b.addEventListener("cli
 	render();
 });
 document.getElementById("btnNewStation").addEventListener("click", newStation);
+document.getElementById("haltSearch").addEventListener("input", () => renderSetup());
 document.getElementById("ownerSel").addEventListener("change", (e) => { localStore("owner", e.target.value); renderSetup(); });
 document.getElementById("sigSort").addEventListener("change", (e) => { localStore("sigsort", e.target.value); renderSetup(); });
 document.getElementById("sigSort").value = localStore("sigsort") || "owner";

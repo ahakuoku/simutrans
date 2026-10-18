@@ -554,7 +554,8 @@ function renderStationCfg() {
 		<div class="hint" style="margin-top:6px">所有：<b>${esc(companyName(st.owner))}</b>。ほかに操作できる会社（直通運転の駅などに）：</div>
 		<div class="row">${others.map(p => `<label><input type="checkbox" data-op="${p.nr}" ${(st.operators || []).includes(p.nr) ? "checked" : ""}>${esc(p.name)}</label>`).join("") || `<span class="hint">ほかの会社はありません</span>`}</div>
 	</div>`;
-	if (box.dataset.html === html || box.contains(document.activeElement)) return;
+	// not while typing or choosing in it (a pressed button does not keep it from being drawn again)
+	if (box.dataset.html === html || box.contains(document.activeElement) && /INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) return;
 	box.innerHTML = box.dataset.html = html;
 	for (const b of box.querySelectorAll("[data-kind]")) b.addEventListener("click", () => {
 		const kind = Number(b.dataset.kind);

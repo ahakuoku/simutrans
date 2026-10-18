@@ -214,7 +214,8 @@ function pointClicked(i) {
 	render();
 }
 const isDepartureAnchor = (st, pos) => !!(st && (st.departures || []).some(d => key(d.pos) === key(pos)));
-const dirName = (d) => ({ [N]: "北", [E]: "東", [S]: "南", [W]: "西" }[d] || "");
+// a map direction as a direction on the earth: turning the map in the game turns the coordinates
+const dirName = (d) => { const i = DIRS.indexOf(d); return i < 0 ? "" : ["北", "東", "南", "西"][(i - worldRot() + 4) & 3]; };
 
 /*
  * Checks of the interlocking area for the setup tab.

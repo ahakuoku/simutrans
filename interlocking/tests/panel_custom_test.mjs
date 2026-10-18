@@ -291,6 +291,31 @@ try {
 	check(areas[0] === areas[1] && (await st()).stations[0].view, `the same area as the browser that made the station: ${areas[1]}`);
 	await ctx2.close();
 
+	console.log("[11] stop search, one panel per stop, both ends of a platform, switching the kind");
+	await page.click("nav button[data-tab=setup]");
+	await page.fill("#haltSearch", "ＳＴＯＰ 2");
+	await sleep(500);
+	const shown = await page.$$eval("#haltSel option", os => os.map(o => o.textContent));
+	check(shown.length >= 1 && shown.every(t => t.includes("stop 2")), `the search keeps the stops whose name matches (full width capitals, too): ${shown.join(" / ")}`);
+	await page.fill("#haltSearch", "");
+	await sleep(400);
+	check(await page.locator(`#haltSel option[value='${haltT.id}'][disabled]`).count() === 1, "the stop that has a panel is marked and cannot be chosen");
+	const nst = (await st()).stations.length;
+	await page.evaluate((id) => { const sel = document.getElementById("haltSel"); const o = sel.querySelector(`option[value='${id}']`); o.disabled = false; sel.value = String(id); }, haltT.id);
+	await page.click("#btnNewStation");
+	await sleep(1500);
+	check((await st()).stations.length === nst, "no second panel for the same stop");
+	await cmd(`dep_add,${sid},6,5,0`); await sleep(1200);
+	const names = await page.evaluate(() => [signalLabel(station(), [6, 5, 0]), signalLabel(station(), [8, 5, 0])]);
+	check(names[0] !== names[1] && /（[東西南北]）$/.test(names[0]) && /（[東西南北]）$/.test(names[1]), `the two ends of a platform have the side in their names: ${names.join(" / ")}`);
+	await cmd(`dep_del,${sid},6,5,0`); await sleep(800);
+	await page.click("#stationCfg button[data-kind='1']");
+	await waitFor(async () => (await page.locator("#stationCfg #cfgTa").count()) === 1, 8000, "relay settings shown");
+	await page.click("#stationCfg button[data-kind='0']");
+	await waitFor(async () => (await page.locator("#stationCfg #cfgTa").count()) === 0, 8000, "relay settings gone at once");
+	check(true, "switching relay / electronic shows the settings of the new kind at once");
+	await page.click("nav button[data-tab=run]");
+
 	console.log("[6] back to the track plan, and no custom panel any more");
 	await page.click("#viewbar button[data-cp=auto]");
 	await waitFor(async () => (await page.locator("#map [data-part]").count()) === 0, 5000, "track plan");
