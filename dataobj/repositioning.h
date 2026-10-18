@@ -4,6 +4,8 @@
 #include "../tpl/stringhashtable_tpl.h"
 #include "koord.h"
 
+#include <string>
+
 /*
  * singleton.
  *
@@ -21,7 +23,7 @@ private:
   static repositioning_t instance;
   stringhashtable_tpl<koord> table;
   static koord default_offset;
-  static char tab_filename[128];
+  static std::string tab_filename;
   
 public:
   static repositioning_t& get_instance() { return instance; };
