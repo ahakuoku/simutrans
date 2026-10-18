@@ -29,6 +29,7 @@ try {
 	const browser = await playwright.chromium.launch({ executablePath: process.env.CHROMIUM || undefined });
 	const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 	page.on("dialog", d => d.accept());
+	page.on("pageerror", e => console.log("PAGE ERROR:", e.message));
 	await page.goto(BASE + "/");
 	await page.waitForSelector("#conndot.ok");
 	const haltT = (await (await fetch(BASE + "/api/halts")).json()).halts.find(h => h.tiles.length === 6);
@@ -88,6 +89,7 @@ try {
 	await page.mouse.click(box.x + 40, box.y + box.height - 30);
 	await sleep(300);
 	page.on("dialog", d => d.accept());
+	page.on("pageerror", e => console.log("PAGE ERROR:", e.message));
 	await page.click("#viewbar button[data-cp=apply]");
 	await waitFor(async () => (await panel(sid)).parts.some(p => p.t === "L"), 10000, "text saved");
 	const after = (await panel(sid)).parts;

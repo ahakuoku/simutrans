@@ -204,6 +204,14 @@ il_point_t *il_station_t::find_point(koord3d pos) const
 }
 
 
+// the stop on a tile: the same stop on the server and every client (unlike its number)
+static halthandle_t halt_at(koord3d pos)
+{
+	const grund_t *gr = pos != koord3d::invalid ? world()->lookup(pos) : NULL;
+	return gr ? gr->get_halt() : halthandle_t();
+}
+
+
 static schiene_t *get_rail(koord3d pos)
 {
 	grund_t *gr = world()->lookup(pos);
@@ -880,15 +888,23 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 	const char *error = NULL;
 
 	if(  strcmp(cmd, "st_newh") == 0  &&  n >= 3  ) {
-		// a station for a stop: st_newh,<stop id>,<name>; one interlocking panel per stop
-		const uint16 halt = (uint16)atoi(f[1]);
+		// a station for a stop: st_newh,<x:y:z of a platform tile>,<name>; one interlocking panel per stop
+		koord3d hpos = koord3d::invalid;
+		int hx, hy, hz;
+		if(  sscanf(f[1], "%d:%d:%d", &hx, &hy, &hz) == 3  ) {
+			hpos = koord3d((sint16)hx, (sint16)hy, (sint8)hz);
+		}
+		const halthandle_t halt = halt_at(hpos);
 		il_station_t *other = NULL;
 		FOR(vector_tpl<il_station_t *>, o, stations) {
-			if(  halt  &&  o->view_halt == halt  ) {
+			if(  halt.is_bound()  &&  halt_at(o->view_hpos) == halt  ) {
 				other = o;
 			}
 		}
-		if(  other  ) {
+		if(  !halt.is_bound()  ) {
+			error = "no stop at this position";
+		}
+		else if(  other  ) {
 			error = "this stop already has an interlocking panel";
 		}
 		else {
@@ -897,7 +913,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			st->name = f[2];
 			st->owner = player ? player->get_player_nr() : 1;
 			st->manual = false;
-			st->view_halt = halt;
+			st->view_hpos = hpos;
 			stations.append(st);
 			cbuffer_t ev;
 			ev.printf("{\"type\":\"station\",\"id\":%u,\"name\":", st->id);
@@ -1216,7 +1232,7 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 		}
 	}
 	else if(  strcmp(cmd, "st_view") == 0  &&  n >= 6  ) {
-		// the part of the map the panel shows: st_view,<station>,x1,y1,x2,y2[,halt]
+		// the part of the map the panel shows: st_view,<station>,x1,y1,x2,y2[,x:y:z of a platform tile]
 		il_station_t *st = find_station((uint16)atoi(f[1]));
 		const sint32 x1 = atoi(f[2]), y1 = atoi(f[3]), x2 = atoi(f[4]), y2 = atoi(f[5]);
 		if(  st == NULL  ) {
@@ -1234,7 +1250,8 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			st->view_y1 = (sint16)y1;
 			st->view_x2 = (sint16)x2;
 			st->view_y2 = (sint16)y2;
-			st->view_halt = n >= 7 ? (uint16)atoi(f[6]) : 0;
+			int hx, hy, hz;
+			st->view_hpos = n >= 7  &&  sscanf(f[6], "%d:%d:%d", &hx, &hy, &hz) == 3 ? koord3d((sint16)hx, (sint16)hy, (sint8)hz) : koord3d::invalid;
 		}
 	}
 	else if(  strcmp(cmd, "cp_edit") == 0  &&  n >= 3  ) {
@@ -2847,7 +2864,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 15
+#define IL_BLOCK_VERSION 16
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -3033,7 +3050,15 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 			b.rdwr_short(st->view_y1);
 			b.rdwr_short(st->view_x2);
 			b.rdwr_short(st->view_y2);
-			b.rdwr_short(st->view_halt);
+			if(  version >= 16  ) {
+				b.rdwr_pos(st->view_hpos);
+			}
+			else {
+				// version 15 kept the number of the stop, which does not survive loading: dropped
+				uint16 old_halt = 0;
+				b.rdwr_short(old_halt);
+				st->view_hpos = koord3d::invalid;
+			}
 		}
 		if(  version >= 14  ) {
 			uint32 nm = st->marks.get_count();
@@ -3152,6 +3177,9 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 			st->view_x2 = max(a.x, b.x);
 			st->view_y1 = min(a.y, b.y);
 			st->view_y2 = max(a.y, b.y);
+			if(  st->view_hpos != koord3d::invalid  ) {
+				st->view_hpos.rotate90(y_size);
+			}
 		}
 		// the custom panel keeps its drawing, only the tiles it stands for turn with the map
 		FOR(vector_tpl<il_part_t *>, pt, st->parts) {
@@ -3257,7 +3285,9 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 			buf.printf(",\"editing\":%u", st->edit_player);
 		}
 		if(  st->view_set  ) {
-			buf.printf(",\"view\":[%d,%d,%d,%d,%u]", st->view_x1, st->view_y1, st->view_x2, st->view_y2, st->view_halt);
+			// the number of the stop as this game knows it (the panel gets the stops of this game)
+			const halthandle_t vh = halt_at(st->view_hpos);
+			buf.printf(",\"view\":[%d,%d,%d,%d,%u]", st->view_x1, st->view_y1, st->view_x2, st->view_y2, vh.is_bound() ? (unsigned)vh.get_id() : 0u);
 		}
 		buf.append(",\"marks\":[");
 		for(  uint32 i = 0;  i < st->marks.get_count();  i++  ) {

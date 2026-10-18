@@ -101,21 +101,21 @@ function localStore(k, v) {
 		localStorage.setItem("tidil." + k, v);
 	} catch (e) { return null; }
 }
-// the part of the map a station's panel shows: kept in the game (the same for everybody, saved with it);
-// this browser's own copy is used only until the game has one
+// the part of the map a station's panel shows: kept in the game (the same for everybody, saved with it).
+// The stop is sent as one of its platform tiles: the number of a stop differs between the server and the
+// clients of a network game (and after loading), its tiles do not; the game answers with its own number.
 function areaOf(id) {
 	const st = status.stations.find(s => s.id === id);
 	if (st && st.view) return { x1: st.view[0], y1: st.view[1], x2: st.view[2], y2: st.view[3], halt: st.view[4] || undefined };
-	try { return JSON.parse(localStore("area." + id) || "null"); } catch (e) { return null; }
+	return null;
 }
-function setArea(id, a, local = false) {
-	localStore("area." + id, JSON.stringify(a));
+function setArea(id, a) {
 	const st = status.stations.find(s => s.id === id);
-	if (local) return;
-	// into the game for everybody (also the station just made: its id is known from the event)
-	command(`st_view,${id},${a.x1},${a.y1},${a.x2},${a.y2},${a.halt || 0}`, "表示する範囲");
+	const h = halts.find(x => x.id === a.halt);
+	const hp = h && h.tiles.length ? "," + h.tiles[0].join(":") : "";
+	command(`st_view,${id},${a.x1},${a.y1},${a.x2},${a.y2}${hp}`, "表示する範囲");
 	// shown at once, before the game's answer
-	if (st) st.view = [a.x1, a.y1, a.x2, a.y2, a.halt || 0];
+	if (st) st.view = [a.x1, a.y1, a.x2, a.y2, h ? h.id : 0];
 }
 const key = (p) => p.join(",");
 const station = () => status.stations.find(s => s.id === stationId);
@@ -215,16 +215,8 @@ function handleEvent(ev) {
 }
 
 async function rotateAreas() {
+	// the game turns the areas it keeps
 	try { info = await api("/api/info"); } catch (e) { return; }
-	const sx = info.map[0];
-	for (const st of status.stations) {
-		// the game turns the area it keeps; only a browser's own copy is turned here
-		if (st.view) continue;
-		const a = areaOf(st.id);
-		if (!a) continue;
-		const p1 = [sx - 1 - a.y1, a.x1], p2 = [sx - 1 - a.y2, a.x2];
-		setArea(st.id, { x1: Math.min(p1[0], p2[0]), x2: Math.max(p1[0], p2[0]), y1: Math.min(p1[1], p2[1]), y2: Math.max(p1[1], p2[1]), halt: a.halt }, true);
-	}
 	log("マップが回転しました");
 	await refreshTracks();
 	render();
@@ -467,16 +459,10 @@ function setConnected(ok) {
 // ---------------------------------------------------------------------------
 // area
 // ---------------------------------------------------------------------------
-const areaPushed = new Set();
 function currentArea() {
 	const st = station();
 	if (!st) return null;
 	let a = areaOf(st.id);
-	// a station made before the area was kept in the game: this browser's area goes into the game once
-	if (a && !st.view && !areaPushed.has(st.id)) {
-		areaPushed.add(st.id);
-		setArea(st.id, a);
-	}
 	if (!a) {
 		// nobody chose an area yet: around the signals, platforms and routes of the station (not kept)
 		const pts = st.signals.map(s => s.pos);

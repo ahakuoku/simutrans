@@ -66,7 +66,7 @@ class Panel:
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 msg = json.loads(line.decode("utf-8"))
-                if msg["type"] in ("status", "signals", "convoys", "pong", "error", "debug_tool", "debug_save", "debug_work"):
+                if msg["type"] in ("status", "signals", "convoys", "pong", "error", "debug_tool", "debug_save", "debug_work", "halts"):
                     self.answers.put(msg)
                 else:
                     self.events.put(msg)
@@ -436,15 +436,21 @@ def run(args):
         check(p.status()["stations"][0]["parts"] == 3 and [x["t"] for x in pn["parts"]] == ["T", "S", "L"], f"custom panel stored: {[x['t'] for x in pn['parts']]}")
         check(pn["parts"][0]["b"] == [[3, 5, 0], [4, 5, 0], [5, 5, 0]] and pn["parts"][2]["s"] == "%E4%B8%8A%E3%82%8A", "tiles and text kept")
 
-        check(p.cmd("st_newh,77,Testeki")["ok"], "a station made for the stop 77")
-        r = p.cmd("st_newh,77,Testeki")
-        check(not r["ok"] and r["error"] == "this stop already has an interlocking panel", "a second panel for the same stop is refused")
+        # a stop is named by one of its platform tiles: its number differs between the server and the clients
+        halt = p.request("halts")["halts"][0]
+        ht = halt["tiles"]
+        hp = lambda t: ":".join(map(str, t))
+        check(p.cmd(f"st_newh,{hp(ht[0])},Testeki")["ok"], f"a station made for the stop {halt['name']}")
+        r = p.cmd(f"st_newh,{hp(ht[-1])},Testeki")
+        check(not r["ok"] and r["error"] == "this stop already has an interlocking panel", "a second panel for the same stop is refused (another of its tiles)")
+        r = p.cmd("st_newh,0:0:0,Nowhere")
+        check(not r["ok"] and r["error"] == "no stop at this position", "a tile without a stop is refused")
         dup = [x for x in p.status()["stations"] if x.get("name") == "Testeki"]
         check(len(dup) == 1, "only one")
         check(p.cmd(f"st_del,{dup[0]['id']}")["ok"], "removed again")
-        check(p.cmd(f"st_view,{sid},1,2,13,9,0")["ok"], "the area of the panel kept in the game")
-        check(not p.cmd(f"st_view,{sid},5,5,2,2,0")["ok"], "a bad area is refused")
-        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, 0], "everybody gets the same area")
+        check(p.cmd(f"st_view,{sid},1,2,13,9,{hp(ht[0])}")["ok"], "the area of the panel kept in the game")
+        check(not p.cmd(f"st_view,{sid},5,5,2,2")["ok"], "a bad area is refused")
+        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, halt["id"]], f"everybody gets the same area, the stop as numbered by this game: {p.status()['stations'][0]['view']}")
 
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
@@ -454,7 +460,8 @@ def run(args):
         after = p.status()
         info = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/info").read())
         check(info()["rot"] == 1, "the map was turned once: north moved (info rot)")
-        check(p.status()["stations"][0]["view"] != [1, 2, 13, 9, 0], "the area turns with the map")
+        check(p.status()["stations"][0]["view"][:4] != [1, 2, 13, 9], "the area turns with the map")
+        check(p.status()["stations"][0]["view"][4] == halt["id"], "and still knows its stop")
         pr = panel()["parts"]
         check(pr[0]["b"] != pn["parts"][0]["b"] and (pr[0]["x1"], pr[0]["y1"], pr[0]["x2"], pr[0]["y2"]) == (2, 3, 12, 3), "custom panel: its tiles turn with the map, its drawing stays")
         s_after = after["stations"][0]["signals"][0]
@@ -472,7 +479,7 @@ def run(args):
         check(p.status()["stations"][0]["area_of"] == before["stations"][0]["area_of"], "four rotations restore the areas of the levers")
         check(panel()["parts"] == pn["parts"], "four rotations restore the tiles of the custom panel (its drawing is kept)")
         check(info()["rot"] == 0, "four turns: north where it was")
-        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, 0], "four turns: the area as it was")
+        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, halt["id"]], "four turns: the area as it was")
 
         print("[6] save and load")
         # set any free route (the train may just be running over one of them)

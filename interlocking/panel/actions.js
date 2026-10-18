@@ -58,7 +58,7 @@ async function newStation() {
 	const area = boxAround(h.tiles, 10);
 	area.halt = h.id;
 	const got = new Promise((resolve) => { pendingStation = resolve; setTimeout(() => resolve(null), 15000); });
-	command(`st_newh,${h.id},${h.name}`, "連動駅の作成 " + h.name);
+	command(`st_newh,${h.tiles[0].join(":")},${h.name}`, "連動駅の作成 " + h.name);
 	const ev = await got;
 	pendingStation = null;
 	if (!ev) return;

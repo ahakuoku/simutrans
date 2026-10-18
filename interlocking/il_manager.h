@@ -176,9 +176,11 @@ struct il_station_t {
 	/// the part of the map the panel shows (the same for everybody), and the stop it belongs to
 	bool view_set;
 	sint16 view_x1, view_y1, view_x2, view_y2;
-	uint16 view_halt;
+	// a platform tile of the stop the panel is for (not the stop's number: that differs between the
+	// server and the clients of a network game and after loading)
+	koord3d view_hpos;
 
-	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0), edit_player(255), view_set(false), view_x1(0), view_y1(0), view_x2(0), view_y2(0), view_halt(0) {}
+	il_station_t() : id(0), owner(0), manual(false), kind(IL_ELECTRONIC), rot(0), t_approach(90), t_shunt(30), t_throw(4), all_stop(false), parts_rev(0), edit_player(255), view_set(false), view_x1(0), view_y1(0), view_x2(0), view_y2(0), view_hpos(koord3d::invalid) {}
 	~il_station_t() { clear_ptr_vector(departures); clear_ptr_vector(levers); clear_ptr_vector(slevers); clear_ptr_vector(points); clear_ptr_vector(parts); clear_ptr_vector(marks); }
 	il_slever_t *find_slever(koord3d pos, sint8 lever = -1) const;
 	il_point_t *find_point(koord3d pos) const;
