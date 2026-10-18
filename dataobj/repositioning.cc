@@ -9,7 +9,7 @@
 
 repositioning_t repositioning_t::instance;
 koord repositioning_t::default_offset = koord(0,4);
-std::string repositioning_t::tab_filename;
+char repositioning_t::tab_filename[128] = "";
 
 void repositioning_t::set_offset(const char* name, koord k) {
   table.set(name, k);
@@ -36,7 +36,7 @@ koord repositioning_t::get_offset(const char* c) {
 }
 
 void repositioning_t::read_tabfile(const char* filename) {
-  tab_filename = filename;
+  strcpy(tab_filename, filename);
   table.clear();
   
   FILE* file;
@@ -77,7 +77,7 @@ void repositioning_t::write_tabfile() {
   }
   
   FILE* file;
-  file = dr_fopen(tab_filename.c_str(), "w");
+  file = dr_fopen(tab_filename, "w");
   if(  file==NULL  ) {
     // cannot open tab file!
     return;
