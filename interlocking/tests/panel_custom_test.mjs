@@ -280,6 +280,17 @@ try {
 	check(asked.some(m => m.includes("ほかの人がカスタム盤を保存")), "the second is warned before it replaces the panel saved meanwhile");
 	await page2.close();
 
+	console.log("[10] another computer (its own browser storage) shows the same area");
+	const ctx2 = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+	const other = await ctx2.newPage();
+	other.on("dialog", d => d.accept());
+	await other.goto(BASE + "/");
+	await other.waitForSelector("#conndot.ok");
+	await sleep(1500);
+	const areas = await Promise.all([page, other].map(pg => pg.evaluate(() => JSON.stringify(currentArea()))));
+	check(areas[0] === areas[1] && (await st()).stations[0].view, `the same area as the browser that made the station: ${areas[1]}`);
+	await ctx2.close();
+
 	console.log("[6] back to the track plan, and no custom panel any more");
 	await page.click("#viewbar button[data-cp=auto]");
 	await waitFor(async () => (await page.locator("#map [data-part]").count()) === 0, 5000, "track plan");

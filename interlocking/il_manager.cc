@@ -1185,6 +1185,28 @@ const char *interlocking_manager_t::execute(const char *param, player_t *player)
 			}
 		}
 	}
+	else if(  strcmp(cmd, "st_view") == 0  &&  n >= 6  ) {
+		// the part of the map the panel shows: st_view,<station>,x1,y1,x2,y2[,halt]
+		il_station_t *st = find_station((uint16)atoi(f[1]));
+		const sint32 x1 = atoi(f[2]), y1 = atoi(f[3]), x2 = atoi(f[4]), y2 = atoi(f[5]);
+		if(  st == NULL  ) {
+			error = "unknown station";
+		}
+		else if(  !may_operate(st, player)  ) {
+			error = "not owner";
+		}
+		else if(  x1 < 0  ||  y1 < 0  ||  x2 < x1  ||  y2 < y1  ||  x2 - x1 > 512  ||  y2 - y1 > 512  ) {
+			error = "bad area";
+		}
+		else {
+			st->view_set = true;
+			st->view_x1 = (sint16)x1;
+			st->view_y1 = (sint16)y1;
+			st->view_x2 = (sint16)x2;
+			st->view_y2 = (sint16)y2;
+			st->view_halt = n >= 7 ? (uint16)atoi(f[6]) : 0;
+		}
+	}
 	else if(  strcmp(cmd, "cp_edit") == 0  &&  n >= 3  ) {
 		// somebody starts / stops editing the custom panel (shown to the others; not a lock)
 		il_station_t *st = find_station((uint16)atoi(f[1]));
@@ -2795,7 +2817,7 @@ void interlocking_manager_t::rdwr(loadsave_t *file)
 
 
 // format of the data block (independent of IL_SAVE_VERSION, which belongs to the old format)
-#define IL_BLOCK_VERSION 14
+#define IL_BLOCK_VERSION 15
 
 void interlocking_manager_t::save_block(loadsave_t *file)
 {
@@ -2975,6 +2997,14 @@ void interlocking_manager_t::rdwr_blob(il_blob_t &b)
 				}
 			}
 		}
+		if(  version >= 15  ) {
+			b.rdwr_bool(st->view_set);
+			b.rdwr_short(st->view_x1);
+			b.rdwr_short(st->view_y1);
+			b.rdwr_short(st->view_x2);
+			b.rdwr_short(st->view_y2);
+			b.rdwr_short(st->view_halt);
+		}
 		if(  version >= 14  ) {
 			uint32 nm = st->marks.get_count();
 			b.rdwr_long(nm);
@@ -3084,6 +3114,15 @@ void interlocking_manager_t::rotate90(sint16 y_size)
 		FOR(vector_tpl<il_mark_t *>, m, st->marks) {
 			m->pos.rotate90(y_size);
 		}
+		if(  st->view_set  ) {
+			koord3d a(st->view_x1, st->view_y1, 0), b(st->view_x2, st->view_y2, 0);
+			a.rotate90(y_size);
+			b.rotate90(y_size);
+			st->view_x1 = min(a.x, b.x);
+			st->view_x2 = max(a.x, b.x);
+			st->view_y1 = min(a.y, b.y);
+			st->view_y2 = max(a.y, b.y);
+		}
 		// the custom panel keeps its drawing, only the tiles it stands for turn with the map
 		FOR(vector_tpl<il_part_t *>, pt, st->parts) {
 			FOR(vector_tpl<koord3d>, &t, pt->bind) {
@@ -3186,6 +3225,9 @@ void interlocking_manager_t::get_status_json(cbuffer_t &buf) const
 		buf.printf("],\"parts\":%u,\"parts_rev\":%u", st->parts.get_count(), st->parts_rev);
 		if(  st->edit_player != 255  ) {
 			buf.printf(",\"editing\":%u", st->edit_player);
+		}
+		if(  st->view_set  ) {
+			buf.printf(",\"view\":[%d,%d,%d,%d,%u]", st->view_x1, st->view_y1, st->view_x2, st->view_y2, st->view_halt);
 		}
 		buf.append(",\"marks\":[");
 		for(  uint32 i = 0;  i < st->marks.get_count();  i++  ) {

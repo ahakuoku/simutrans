@@ -436,6 +436,10 @@ def run(args):
         check(p.status()["stations"][0]["parts"] == 3 and [x["t"] for x in pn["parts"]] == ["T", "S", "L"], f"custom panel stored: {[x['t'] for x in pn['parts']]}")
         check(pn["parts"][0]["b"] == [[3, 5, 0], [4, 5, 0], [5, 5, 0]] and pn["parts"][2]["s"] == "%E4%B8%8A%E3%82%8A", "tiles and text kept")
 
+        check(p.cmd(f"st_view,{sid},1,2,13,9,0")["ok"], "the area of the panel kept in the game")
+        check(not p.cmd(f"st_view,{sid},5,5,2,2,0")["ok"], "a bad area is refused")
+        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, 0], "everybody gets the same area")
+
         print("[5] rotate the map")
         rot = simple_tool_id("TOOL_ROTATE90")
         before = p.status()
@@ -444,6 +448,7 @@ def run(args):
         after = p.status()
         info = lambda: json.loads(urllib.request.urlopen(f"http://127.0.0.1:{PORT}/api/info").read())
         check(info()["rot"] == 1, "the map was turned once: north moved (info rot)")
+        check(p.status()["stations"][0]["view"] != [1, 2, 13, 9, 0], "the area turns with the map")
         pr = panel()["parts"]
         check(pr[0]["b"] != pn["parts"][0]["b"] and (pr[0]["x1"], pr[0]["y1"], pr[0]["x2"], pr[0]["y2"]) == (2, 3, 12, 3), "custom panel: its tiles turn with the map, its drawing stays")
         s_after = after["stations"][0]["signals"][0]
@@ -461,6 +466,7 @@ def run(args):
         check(p.status()["stations"][0]["area_of"] == before["stations"][0]["area_of"], "four rotations restore the areas of the levers")
         check(panel()["parts"] == pn["parts"], "four rotations restore the tiles of the custom panel (its drawing is kept)")
         check(info()["rot"] == 0, "four turns: north where it was")
+        check(p.status()["stations"][0]["view"] == [1, 2, 13, 9, 0], "four turns: the area as it was")
 
         print("[6] save and load")
         # set any free route (the train may just be running over one of them)
@@ -484,7 +490,7 @@ def run(args):
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
                                  st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
-                                 st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]], st["areas"], st["area_of"]) for st in sts]
+                                 st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]], st["areas"], st["area_of"], st.get("view")) for st in sts]
         check(strip_st(loaded["stations"]) == strip_st(saved["stations"]), "stations restored (name, owner, mode, signals, virtual departures)")
         strip = lambda rs: [(r["id"], r["name"], r["state"], r["tiles"]) for r in rs]
         check(strip(loaded["routes"]) == strip(saved["routes"]), "routes and their states restored")
