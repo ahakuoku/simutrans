@@ -259,7 +259,7 @@ function displayStationName(name) {
 	return stationNameMode === "alias" ? oudStationName(name) : name;
 }
 
-function matchOperation(name, seconds, diagram, early, late, halt = "") {
+function matchOperation(name, seconds, diagram, early, late, halt = "", journey = null) {
 	if (!diagram || !Number.isFinite(seconds)) return [];
 	halt = oudStationName(halt);
 	const candidates = new Map(), op = operationNumber(name);
@@ -274,7 +274,16 @@ function matchOperation(name, seconds, diagram, early, late, halt = "") {
 			if (now >= start - early && now <= end + late) candidates.set(entry.id, entry);
 		}
 	}
-	return [...candidates.values()];
+	const matches = [...candidates.values()];
+	if (!journey) return matches;
+	const from = oudStationName(journey.service_from || (journey.loading === true ? journey.halt : ""));
+	const to = oudStationName(journey.service_to || (journey.loading === false ? journey.next_halt : ""));
+	if (!to || from === to) return matches;
+	const paths = matches.map(entry => ({ entry, names: entry.stops.slice(entry.from, entry.to + 1).filter(s => s.arrival != null || s.departure != null).map(s => s.name) }));
+	// Unknown game/diagram station names are not evidence against a candidate.
+	if (!paths.some(p => p.names.includes(to))) return matches;
+	const knownFrom = from && paths.some(p => p.names.includes(from));
+	return paths.filter(p => knownFrom ? p.names.some((name, i) => name === from && p.names.slice(i + 1).includes(to)) : p.names.includes(to)).map(p => p.entry);
 }
 
 function trainDelay(convoy, seconds, entry) {
@@ -311,7 +320,7 @@ function trainDelay(convoy, seconds, entry) {
 
 function networkTrainDisplay(c, data) {
 	const diagram = operationData?.diagrams[operationConfig.diagram];
-	const matches = matchOperation(c.name, data.seconds, diagram, operationConfig.early, operationConfig.late, c.halt);
+	const matches = matchOperation(c.name, data.seconds, diagram, operationConfig.early, operationConfig.late, c.halt, c);
 	const label = t => `${t.number || "列車番号なし"} ${t.type} ${t.destination}行`;
 	const text = !diagram ? "運用照合なし" : matches.length === 1 ? label(matches[0]) : matches.length ? `候補複数：${matches.map(label).join(" ／ ")}` : "列車未特定";
 	const delay = trainDelay(c, data.seconds, matches.length === 1 ? matches[0] : null);

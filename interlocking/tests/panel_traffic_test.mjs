@@ -127,6 +127,23 @@ assert.equal(run('matchOperation("A01",36000,aliasDiagram,0,0,"ゲームA").leng
 run('stationNameMode = "game";');
 run('operationConfig.stationAliases = [];');
 
+context.source = file("EkiJikoku=1;1000,1;1010,1;1020/\nOperationNumber0=A01",
+	upward("EkiJikoku=1;1025,1;1035,1;1045/\nOperationNumber0=A01"));
+run("var turning = parseOudOperations(source)[0];");
+assert.equal(run('matchOperation("A01",37500,turning,120,1800,"終点").length'), 2, "reproduce overlapping arrival/departure service windows");
+assert.equal(run('matchOperation("A01",37500,turning,120,1800,"終点",{loading:true,halt:"終点",service_from:"終点",service_to:"中間"})[0].number'), "102");
+assert.equal(run('matchOperation("A01",37620,turning,120,1800,"",{loading:false,service_from:"終点",service_to:"中間"}).length'), 1);
+assert.equal(run('matchOperation("A01",37620,turning,120,1800,"",{loading:false,service_from:"終点",service_to:"中間"})[0].number'), "102");
+assert.equal(run('matchOperation("A01",37200,turning,120,1800,"",{loading:false,service_from:"中間",service_to:"終点"})[0].number'), "101", "incoming service is retained before turning");
+assert.equal(run('matchOperation("A01",37500,turning,120,1800,"",{service_from:"unknown",service_to:"unknown"}).length'), 2, "missing station information must not guess a direction");
+run('operationConfig.stationAliases = [["ゲーム終点","終点"],["ゲーム中間","中間"]];');
+assert.equal(run('matchOperation("A01",37500,turning,120,1800,"ゲーム終点",{loading:true,halt:"ゲーム終点",service_from:"ゲーム終点",service_to:"ゲーム中間"})[0].number'), "102");
+run('operationConfig.stationAliases = [];');
+context.source = file("EkiJikoku=1;2340,1;2350,1;0000/\nOperationNumber0=A01",
+	upward("EkiJikoku=1;0005,1;0015,1;0025/\nOperationNumber0=A01"));
+run("turning = parseOudOperations(source)[0];");
+assert.equal(run('matchOperation("A01",360,turning,120,1800,"",{loading:false,service_from:"終点",service_to:"中間"})[0].number'), "102", "midnight turnaround uses the new service");
+
 if (process.argv[2]) {
 	context.source = fs.readFileSync(process.argv[2], "utf8");
 	const result = run('parseOudOperations(source).map(d => ({name:d.name, entries:d.entries.length}))');

@@ -19,7 +19,7 @@ const api = {
 	tracks: { tiles: [{ p: [1, 1, 0], r: 10, m: 10, h: 1 }], convoys: {} },
 	network: { time: "10:05:00", seconds: 36300, track_count: 10000,
 		tiles: [{ p: [249, 250, 0], r: 10, halt: "始発", s: { dir: 8, aspect: "red", name: "場内信号" } }, { p: [250, 250, 0], r: 10 }, { p: [251, 250, 0], r: 9, s: { dir: 1, aspect: "green", name: "出発信号" } }],
-		convoys: [{ id: 7, name: "(7) A01", pos: [250, 250, 0], halt: "", occupied: [[250, 250, 0]] }] },
+		convoys: [{ id: 7, name: "(7) A01", pos: [250, 250, 0], halt: "", service_from: "始発", service_to: "終点", occupied: [[250, 250, 0]] }] },
 	panel: { parts: [] },
 };
 const server = http.createServer((req, res) => {
@@ -115,7 +115,8 @@ try {
 	assert.match(await page.locator("#networkTrains").innerText(), /運用照合なし/);
 	await page.locator('[data-tab="setup"]').click();
 	const source = `FileType=OuDiaSecond.1.17\nRosen.\nEki.\nEkimei=始発\n.\nEki.\nEkimei=終点\n.\nRessyasyubetsu.\nSyubetsumei=急行\n.\nDia.\nDiaName=平日\nKudari.\nRessya.\nRessyabangou=101\nEkiJikoku=1;1000,1;1020/\nOperationNumber0=A01\n.\n.\n.\n.\n`;
-	await page.locator("#operationFile").setInputFiles({ name: "test.oud2", mimeType: "text/plain", buffer: Buffer.from(source) });
+	const overlappingSource = source.replace(".\n.\n.\n.\n", ".\n.\nNobori.\nRessya.\nRessyabangou=100\nEkiJikoku=1;940,1;1000/\nOperationNumber0=A01\n.\n.\n.\n.\n");
+	await page.locator("#operationFile").setInputFiles({ name: "test.oud2", mimeType: "text/plain", buffer: Buffer.from(overlappingSource) });
 	await page.locator("#operationFileStatus").getByText("test.oud2", { exact: false }).waitFor();
 	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
 	await page.locator('[data-tab="run"]').click();
@@ -131,6 +132,8 @@ try {
 	await page.locator("#operationLate").fill("360"); await page.locator("#operationLate").dispatchEvent("change");
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /101 急行 終点行/);
+	assert.equal(await page.evaluate(() => matchOperation("A01", network.seconds, operationData.diagrams[operationConfig.diagram], operationConfig.early, operationConfig.late).length), 2, "old and new services overlap before direction filtering");
+	assert.doesNotMatch(await page.locator("#networkTrains").innerText(), /候補複数/);
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /101 急行 終点行/);
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
 	api.network.convoys[0].loading = false;
@@ -188,7 +191,7 @@ try {
 	api.network.time = "10:05:00"; api.network.seconds = 36300;
 	api.network.convoys[0].loading = false; api.network.convoys[0].halt = "";
 	await page.locator('[data-tab="setup"]').click();
-	await page.locator("#operationFile").setInputFiles({ name: "test-legacy.oud2", mimeType: "text/plain", buffer: Buffer.from(source.replace("OperationNumber0=A01", "Operation0B=3/950$/A01")) });
+	await page.locator("#operationFile").setInputFiles({ name: "test-legacy.oud2", mimeType: "text/plain", buffer: Buffer.from(overlappingSource.replace("OperationNumber0=A01", "Operation0B=3/950$/A01")) });
 	await page.locator("#operationFileStatus").getByText("test-legacy.oud2", { exact: false }).waitFor();
 	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
 	await page.locator("#operationDiagram").selectOption("0");

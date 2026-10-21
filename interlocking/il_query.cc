@@ -169,6 +169,19 @@ void il_query::get_network_json(cbuffer_t &buf, koord3d seed)
 		buf.append(",\"halt\":");
 		append_json_string(buf, g && g->get_halt().is_bound() ? g->get_halt()->get_name() : "");
 		buf.printf(",\"loading\":%s", c->is_loading() ? "true" : "false");
+		// The ordered last/current halt -> next scheduled halt distinguishes
+		// two services of the same operation while their tolerance windows overlap.
+		const grund_t *last_stop = c->is_loading() ? g : welt->lookup(c->front()->last_stop_pos);
+		if(  last_stop && last_stop->get_halt().is_bound()  ) {
+			buf.append(",\"service_from\":"); append_json_string(buf, last_stop->get_halt()->get_name());
+		}
+		if(  c->get_schedule() && c->get_schedule()->get_count()  ) {
+			const schedule_t *schedule = c->get_schedule();
+			const grund_t *to = welt->lookup(c->is_loading() ? schedule->get_next_entry().pos : schedule->get_current_entry().pos);
+			if(  to && to->get_halt().is_bound()  ) {
+				buf.append(",\"service_to\":"); append_json_string(buf, to->get_halt()->get_name());
+			}
+		}
 		if(  c->is_loading() && c->get_arrived_time() != 0  ) {
 			buf.printf(",\"arrival_elapsed\":%u", (uint32)((uint64)(welt->get_ticks() - c->get_arrived_time()) * 86400 / welt->ticks_per_world_month));
 		}
