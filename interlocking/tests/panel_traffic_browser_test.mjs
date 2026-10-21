@@ -112,6 +112,13 @@ try {
 	await page.locator("#operationLate").fill("360"); await page.locator("#operationLate").dispatchEvent("change");
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /101 急行 終点行/);
+	await page.locator('[data-tab="setup"]').click();
+	await page.locator("#operationFile").setInputFiles({ name: "test-legacy.oud2", mimeType: "text/plain", buffer: Buffer.from(source.replace("OperationNumber0=A01", "Operation0B=3/950$/A01")) });
+	await page.locator("#operationFileStatus").getByText("test-legacy.oud2", { exact: false }).waitFor();
+	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
+	await page.locator("#operationDiagram").selectOption("0");
+	await page.locator('[data-tab="run"]').click();
+	assert.match(await page.locator("#networkTrains").innerText(), /101 急行 終点行/);
 	await page.reload();
 	await page.locator("#networkTrains").getByText("101 急行 終点行").waitFor();
 	assert.equal(await page.locator("#panelMode").inputValue(), "network");

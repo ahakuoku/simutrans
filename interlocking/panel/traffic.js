@@ -44,10 +44,11 @@ function parseOudOperations(text) {
 	const children = (n, name) => n.children.filter(c => c.name === name);
 	const rosen = children(root, "Rosen")[0];
 	if (!rosen) throw new Error("路線情報がありません");
-	const stations = children(rosen, "Eki").map(e => e.values.Ekimei || "");
+	const stationNodes = children(rosen, "Eki");
+	const stations = stationNodes.map(e => e.values.Ekimei || "");
 	const types = children(rosen, "Ressyasyubetsu").map(t => t.values.Syubetsumei || "");
 	return children(rosen, "Dia").map((dia, index) => {
-		const entries = [], trains = {};
+		const entries = [], trains = {}, legacyTrains = [], covered = new Set();
 		for (const dir of ["Kudari", "Nobori"]) {
 			const names = dir === "Nobori" ? stations.slice().reverse() : stations;
 			trains[dir] = children(dia, dir).flatMap(d => children(d, "Ressya")).map((node, trainIndex) => {
@@ -59,13 +60,15 @@ function parseOudOperations(text) {
 						while (previous !== null && times[j] < previous) times[j] += 86400;
 						previous = times[j];
 					}
-					return { name: names[i] || "", arrival: times[0], departure: times[1] ?? times[0] };
+					const hasSlash = (s.split(";")[1] || "").split("$")[0].includes("/");
+					return { name: names[i] || "", arrival: hasSlash ? times[0] : null, departure: hasSlash ? times[1] : times[0] };
 				});
 				const valid = stops.map((s, i) => s.arrival !== null || s.departure !== null ? i : -1).filter(i => i >= 0);
 				const train = { id: `${dir}:${trainIndex}`, number: v.Ressyabangou || "", type: types[Number(v.Syubetsu || 0)] || "", stops,
 					destination: valid.length ? stops[valid.at(-1)].name : "", valid };
 				const changes = Object.keys(v).filter(k => /^OperationNumber\d+$/.test(k)).map(k => ({ at: Number(k.slice(15)), ops: v[k].split(";") })).sort((a, b) => a.at - b.at);
 				train.changes = changes;
+				legacyTrains.push({ train, values: v, dir });
 				for (let i = 0; i < changes.length; i++) {
 					const a = changes[i].at, b = changes[i + 1]?.at ?? valid.at(-1);
 					add(train, changes[i].ops, a, b);
@@ -78,7 +81,7 @@ function parseOudOperations(text) {
 			const start = train.stops[a]?.departure ?? train.stops[a]?.arrival;
 			const end = train.stops[b]?.arrival ?? train.stops[b]?.departure;
 			if (start == null || end == null || end < start) return;
-			for (const op of ops) if (op.trim()) entries.push({ ...train, operation: op.trim(), start, end, from: a, to: b });
+			for (const op of ops) if (op.trim()) { entries.push({ ...train, operation: op.trim(), start, end, from: a, to: b }); covered.add(train.id); }
 		}
 		// Saved operation tables also cover files without per-train OperationNumberN fields.
 		for (const table of children(dia, "OperationTable")) for (const row of children(table, "OTRessya")) {
@@ -86,8 +89,164 @@ function parseOudOperations(text) {
 			const train = trains[dir][Number(v.OTRessyaIndex)];
 			if (train && !train.changes.length) add(train, [table.values.OTOperationNumber || ""], Number(v.SihatsuEkiOrder), Number(v.SyuuchakuEkiOrder));
 		}
+		const explicit = new Set(covered);
+		restoreLegacyOperations(legacyTrains, stationNodes, rosen.values, (train, ops, a, b) => {
+			if (!explicit.has(train.id)) add(train, ops, a, b);
+		});
 		return { name: dia.values.DiaName || `ダイヤ${index + 1}`, entries };
 	});
+}
+
+// OuDiaSecond 2.06.23: CconvCentDed's Operation{station}B/A properties and
+// CDedOperationConnecter's station/track timelines. Preserve ordered formations
+// through nested coupling/splitting, rather than guessing from train numbers.
+function restoreLegacyOperations(records, stations, settings, add) {
+	const nodes = [], events = new Map(), links = new Map(), snapshots = [];
+	const node = (deps, fn) => { const n = { deps: deps.filter(Boolean), fn, value: null, next: [] }; nodes.push(n); return n; };
+	const constant = ops => node([], () => ops);
+	const list = s => s == null || s === "" ? [] : s.split(";").map(v => v.trim());
+	const clock = t => ((t % 86400) + 86400) % 86400;
+	const origin = oudTime(settings.KitenJikoku) ?? 14400;
+	const timeOrder = t => clock(t - origin);
+	const physical = stations.map((s, i) => i);
+	const root = i => { while (physical[i] !== i) i = physical[i]; return i; };
+	for (let i = 0; i < stations.length; i++) for (const key of ["BrunchCoreEkiIndex", "LoopOriginEkiIndex"]) {
+		const value = stations[i].values[key], target = Number(value);
+		if (value != null && Number.isInteger(target) && target >= 0 && target < stations.length) physical[root(i)] = root(target);
+	}
+	const stationIndex = (record, at) => {
+		const i = record.dir === "Nobori" ? stations.length - 1 - at : at;
+		return root(i);
+	};
+	function event(record, at, track, time, kind, port, link = "") {
+		if (time == null) return;
+		const e = { record, time: timeOrder(time), kind, port };
+		const key = `${stationIndex(record, at)}:${track}`;
+		if (!events.has(key)) events.set(key, []);
+		events.get(key).push(e);
+		if (link) {
+			if (!links.has(link)) links.set(link, []);
+			links.get(link).push(e);
+		}
+	}
+	function compile(record, at, suffix, before, input, platform, fallback, depth = 0) {
+		if (depth > 64) throw new Error("駅作業の入れ子が深すぎます");
+		let work = record.values["Operation" + suffix];
+		if (work == null || work === "") work = "5/$";
+		const operations = work.split(",").map(s => { const a = s.split("/"); return { type: Number(a[0]), a }; });
+		const beforeTrack = index => {
+			for (let j = index; j < operations.length; j++) if (operations[j].type === 0) return Number(operations[j].a[1].split("$")[0]);
+			return platform;
+		};
+		let track = before ? beforeTrack(0) : platform, current = input || constant([]), time = fallback;
+		for (let i = 0; i < operations.length; i++) {
+			const { type, a } = operations[i], part = (a[1] || "").split("$");
+			if (type === 0) {
+				time = oudTime((a[2] || "").split("$")[0]) ?? oudTime(part[1]) ?? time;
+				track = before ? beforeTrack(i + 1) : Number(part[0]);
+			} else if (type === 3 || type === 4 || type === 5) {
+				let t = type === 4 ? oudTime(before ? (a[2] || "").split("$")[0] : part[1]) : oudTime(part[0]);
+				if (t == null && before) {
+					// The first shunt/coupling defines the origin when it is omitted.
+					for (const op of operations.slice(i + 1)) if ([0, 1, 2].includes(op.type)) {
+						t = oudTime(op.type === 2 ? op.a[2] : (op.a[1] || "").split("$")[1]);
+						if (t != null) break;
+					}
+				}
+				t ??= time;
+				const link = type === 4 ? (a[2] || "").split("$")[1] : type === 3 ? part[1] : "";
+				if (before) {
+					const seed = list(type === 3 ? a[2] : type === 4 ? a[3] : part[1]);
+					current = node([], vs => vs[0]?.length ? vs[0] : seed);
+					event(record, at, track, t, type === 5 ? "start" : "out", current, link);
+				} else event(record, at, track, t, type === 5 ? "end" : "in", current, link);
+				time = t;
+			} else if (type === 6) {
+				const ops = list(a[1]);
+				current = ops.length ? constant(ops) : node([current], vs => vs[0].slice().reverse());
+			} else if (type === 1) {
+				const t = oudTime(part[1]) ?? time;
+				const child = compile(record, at, `${suffix}.${i}B`, true, null, track, t, depth + 1);
+				current = node([current, child], vs => {
+					const main = vs[0].length ? vs[0] : [""], sub = vs[1].length ? vs[1] : [""];
+					return part[0] === "1" ? [...sub, ...main] : [...main, ...sub];
+				});
+				time = t;
+			} else if (type === 2) {
+				const count = Math.max(0, Number(part[1]) || 0), pos = Number(part[0]), previous = current;
+				const split = ops => {
+					if (ops.length < 2) return [ops, [""]];
+					if (pos === 1) { const n = Math.min(ops.length - 1, count); return [ops.slice(n), ops.slice(0, n)]; }
+					const n = pos === 0 ? Math.max(1, ops.length - count) : Math.min(ops.length - 1, count);
+					return [ops.slice(0, n), ops.slice(n)];
+				};
+				current = node([previous], vs => split(vs[0])[0]);
+				const sub = node([previous], vs => split(vs[0])[1]);
+				time = oudTime(a[2]) ?? time;
+				compile(record, at, `${suffix}.${i}A`, false, sub, track, time, depth + 1);
+			}
+		}
+		return current;
+	}
+	for (const record of records) {
+		const { train, values, dir } = record;
+		if (!train.valid.length) continue;
+		const first = train.valid[0], last = train.valid.at(-1), rawStops = values.EkiJikoku.split(","), states = [];
+		let current = constant([]);
+		for (let at = first; at <= last; at++) {
+			const s = train.stops[at], station = stations[dir === "Nobori" ? stations.length - 1 - at : at];
+			const trackText = rawStops[at]?.split("$")[1];
+			const track = Number(trackText ?? station?.values[dir === "Nobori" ? "UpMain" : "DownMain"] ?? 0);
+			const b = `${at}B`, a = `${at}A`;
+			if (at === first || values["Operation" + b]) current = compile(record, at, b, true, current, track, s.departure ?? s.arrival);
+			if (at === last || values["Operation" + a]) current = compile(record, at, a, false, current, track, s.arrival ?? s.departure);
+			if (at < last) states.push({ at, current });
+			// A through visit prevents a connection across another train using this track.
+			if (at > first && at < last) {
+				event(record, at, track, s.arrival, "block", current);
+				event(record, at, track, s.departure, "block", current);
+			}
+		}
+		snapshots.push({ train, states, last });
+	}
+	function connect(end, start) {
+		start.port.deps = [end.port];
+		const seedFn = start.port.fn;
+		start.port.fn = vs => seedFn([settings.OperationNumberReverse === "1" && end.record.dir !== start.record.dir ? vs[0].slice().reverse() : vs[0]]);
+	}
+	for (const timeline of events.values()) {
+		const rank = { end: 0, in: 0, block: 1, start: 2, out: 2 };
+		timeline.sort((a, b) => a.time - b.time || rank[a.kind] - rank[b.kind]);
+		const counts = new Map();
+		for (const e of timeline) { const key = `${e.time}:${e.kind}`; counts.set(key, (counts.get(key) || 0) + 1); }
+		for (let i = 0; i < timeline.length; i++) {
+			const end = timeline[i], start = timeline[i + 1] || (settings.OperationCrossKitenJikoku === "1" ? timeline[0] : null);
+			if (end.kind !== "end" || start?.kind !== "start") continue;
+			// Multiple events of the same kind at this instant are a conflict.
+			if (counts.get(`${end.time}:end`) !== 1 || counts.get(`${start.time}:start`) !== 1) continue;
+			connect(end, start);
+		}
+	}
+	for (const group of links.values()) {
+		const ends = group.filter(e => e.kind === "in"), starts = group.filter(e => e.kind === "out");
+		if (ends.length === 1 && starts.length === 1) connect(ends[0], starts[0]);
+	}
+	// Evaluate without recursive train-to-train calls (long daily diagrams can
+	// contain thousands of operations). Unseeded cycles remain unidentified.
+	const queue = [];
+	for (const n of nodes) { n.left = n.deps.length; for (const d of n.deps) d.next.push(n); if (!n.left) queue.push(n); }
+	for (let i = 0; i < queue.length; i++) {
+		const n = queue[i]; n.value = n.fn(n.deps.map(d => d.value));
+		for (const next of n.next) if (!--next.left) queue.push(next);
+	}
+	for (const { train, states, last } of snapshots) {
+		let from = states[0]?.at, ops = states[0]?.current.value || [];
+		for (const s of states.slice(1)) {
+			const next = s.current.value || [];
+			if (JSON.stringify(next) !== JSON.stringify(ops)) { add(train, ops, from, s.at); from = s.at; ops = next; }
+		}
+		if (from != null) add(train, ops, from, last);
+	}
 }
 
 function matchOperation(name, seconds, diagram, early, late, halt = "") {
@@ -251,7 +410,7 @@ document.getElementById("operationFile").addEventListener("change", async e => {
 		try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
 		catch (e) { text = new TextDecoder("shift-jis").decode(bytes); }
 		const diagrams = parseOudOperations(text);
-		if (!diagrams.some(d => d.entries.length)) throw new Error("保存された運用情報がありません。OuDiaSecondで運用を設定・更新して保存してください");
+		if (!diagrams.some(d => d.entries.length)) throw new Error("運用番号を読み取れません。OuDiaSecondの出区・路線外始発・運用番号変更の作業設定、または保存された運用情報を確認してください");
 		const data = { file: file.name, diagrams };
 		// Store before replacing the current selection: a quota failure preserves it.
 		try { localStorage.setItem("tidil.operations", JSON.stringify({ file: file.name, source: text })); }
