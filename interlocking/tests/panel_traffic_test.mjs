@@ -97,6 +97,18 @@ context.source = context.source.replace("Ekimei=終点\n", "Ekimei=終点\nLoopO
 context.source = context.source.replace(".\n.\nNobori.\n", ".\n" + upward("EkiJikoku=1;1030,1;1040,1;1050/\nOperation0B=5/$\nOperation2A=3/1055$") + "\n.\nNobori.\n");
 assert.equal(run('parseOudOperations(source)[0].entries.find(e => e.number === "102").operation'), "LOOP");
 
+context.delayEntry = { from: 0, to: 2, stops: [{ name: "A", arrival: 36000, departure: 36060 }, { name: "B", arrival: 36600, departure: 36660 }, { name: "C", arrival: 37200, departure: null }] };
+assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},36120,delayEntry).text'), "遅延 2分00秒（A 到着基準）");
+assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:240},36240,delayEntry).text'), "遅延 3分00秒（A 発車待ち）");
+assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},36000,delayEntry).seconds'), 0);
+assert.equal(run('trainDelay({loading:false,next_halt:"C",eta_seconds:900},36600,delayEntry).text'), "推定遅延 5分00秒（C 到着見込）");
+assert.equal(run('trainDelay({loading:false,next_halt:"C",eta_seconds:300},36600,delayEntry).text'), "早着見込 5分00秒（C 到着見込）");
+assert.equal(run('trainDelay({loading:false,next_halt:"missing",eta_seconds:900},36600,delayEntry).seconds'), null);
+assert.equal(run('trainDelay({},36600,delayEntry).text'), "遅延不明");
+assert.equal(run('trainDelay({},36600,null).text'), "遅延不明");
+assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},35900,{from:0,to:0,stops:[{name:"A",arrival:null,departure:36000}]}).text'), "定刻（A 発車待ち）");
+assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:60},660,{from:0,to:0,stops:[{name:"A",arrival:87000,departure:87120}]}).seconds'), 0);
+
 if (process.argv[2]) {
 	context.source = fs.readFileSync(process.argv[2], "utf8");
 	const result = run('parseOudOperations(source).map(d => ({name:d.name, entries:d.entries.length}))');

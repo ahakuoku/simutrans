@@ -266,6 +266,47 @@ function matchOperation(name, seconds, diagram, early, late, halt = "") {
 	return [...candidates.values()];
 }
 
+function trainDelay(convoy, seconds, entry) {
+	const unknown = { text: "遅延不明", seconds: null };
+	if (!entry || !Number.isFinite(seconds)) return unknown;
+	const difference = (actual, scheduled) => ((actual - scheduled + 43200) % 86400 + 86400) % 86400 - 43200;
+	function nearest(times, actual) {
+		const found = times.filter(t => t != null).map(t => ({ time: t, diff: difference(actual, t) })).sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff));
+		return !found.length || (found[1] && Math.abs(found[0].diff) === Math.abs(found[1].diff)) ? null : found[0];
+	}
+	function result(diff, basis, estimate = false) {
+		diff = Math.round(diff);
+		const n = Math.abs(diff), duration = `${Math.floor(n / 60)}分${String(n % 60).padStart(2, "0")}秒`;
+		return { seconds: diff, text: (diff > 0 ? `${estimate ? "推定遅延" : "遅延"} ${duration}` : diff < 0 ? `早着${estimate ? "見込" : ""} ${duration}` : estimate ? "定刻見込" : "定刻") + `（${basis}）` };
+	}
+	const stops = entry.stops.slice(entry.from, entry.to + 1);
+	if (convoy.loading === true && convoy.halt) {
+		const here = stops.filter(s => s.name === convoy.halt);
+		const departure = nearest(here.map(s => s.departure), seconds);
+		let arrival = null;
+		if (Number.isFinite(convoy.arrival_elapsed) && convoy.arrival_elapsed >= 0 && convoy.arrival_elapsed < 86400) {
+			arrival = nearest(here.map(s => s.arrival), seconds - convoy.arrival_elapsed);
+		}
+		if (departure && departure.diff > 0 && (!arrival || departure.diff > arrival.diff)) return result(departure.diff, `${convoy.halt} 発車待ち`);
+		if (arrival) return result(arrival.diff, `${convoy.halt} 到着基準`);
+		// At an origin only a departure time may exist; waiting before it is on time.
+		if (departure && !here.some(s => s.arrival != null)) return result(0, `${convoy.halt} 発車待ち`);
+	} else if (convoy.loading === false && convoy.next_halt && Number.isFinite(convoy.eta_seconds) && convoy.eta_seconds >= 0 && convoy.eta_seconds < 86400) {
+		const arrival = nearest(stops.filter(s => s.name === convoy.next_halt).map(s => s.arrival ?? s.departure), seconds + convoy.eta_seconds);
+		if (arrival) return result(arrival.diff, `${convoy.next_halt} 到着見込`, true);
+	}
+	return unknown;
+}
+
+function networkTrainDisplay(c, data) {
+	const diagram = operationData?.diagrams[operationConfig.diagram];
+	const matches = matchOperation(c.name, data.seconds, diagram, operationConfig.early, operationConfig.late, c.halt);
+	const label = t => `${t.number || "列車番号なし"} ${t.type} ${t.destination}行`;
+	const text = !diagram ? "運用照合なし" : matches.length === 1 ? label(matches[0]) : matches.length ? `候補複数：${matches.map(label).join(" ／ ")}` : "列車未特定";
+	const delay = trainDelay(c, data.seconds, matches.length === 1 ? matches[0] : null);
+	return { text, delay, lines: [`運用 ${operationNumber(c.name)}`, matches.length === 1 ? label(matches[0]) : matches.length ? "候補複数" : diagram ? "列車未特定" : "運用照合なし", delay.text] };
+}
+
 let operationData = null;
 try {
 	const saved = JSON.parse(localStore("operations") || "null");
@@ -307,18 +348,16 @@ function renderNetwork() {
 	const diagram = operationData?.diagrams[operationConfig.diagram];
 	summary.textContent = `接続線路 ${network.track_count} タイル・在線 ${network.convoys.length} 編成` + (diagram ? ` ／ ${diagram.name}` : operationData ? " ／ ダイヤ未選択（在線表示のみ）" : " ／ ダイヤ未読込（在線表示のみ）");
 	list.innerHTML = network.convoys.map(c => {
-		const matches = matchOperation(c.name, network.seconds, diagram, operationConfig.early, operationConfig.late, c.halt);
-		const label = t => `${t.number || "列車番号なし"} ${t.type} ${t.destination}行`;
-		const text = !diagram ? "運用照合なし" : matches.length === 1 ? label(matches[0]) : matches.length ? `候補複数：${matches.map(label).join(" ／ ")}` : "列車未特定";
-		return `<div class="item"><b>${esc(text)}</b><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint">${esc(c.halt || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
+		const display = networkTrainDisplay(c, network);
+		return `<div class="item"><b>${esc(display.text)}</b><div class="${display.delay.seconds > 0 ? "network-delay-late" : ""}">${esc(display.delay.text)}</div><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint">${esc(c.halt || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
 	}).join("") || '<p class="hint">接続区間に列車はいません</p>';
 }
 
 function renderNetworkMap(data) {
 	const svg = document.getElementById("networkMap"), wrap = document.getElementById("networkMapWrap"), hint = document.getElementById("networkMapHint");
-	const size = `${wrap.clientWidth},${wrap.clientHeight},${networkMapZoom}`;
-	if (networkMapRendered?.data === data && networkMapRendered.size === size) return;
-	networkMapRendered = { data, size };
+	const size = `${wrap.clientWidth},${wrap.clientHeight},${networkMapZoom},${JSON.stringify(operationConfig)}`;
+	if (networkMapRendered?.data === data && networkMapRendered.size === size && networkMapRendered.operations === operationData) return;
+	networkMapRendered = { data, size, operations: operationData };
 	const tiles = data?.tiles || [];
 	if (!tiles.length) {
 		svg.replaceChildren();
@@ -342,20 +381,21 @@ function renderNetworkMap(data) {
 	const occupied = new Set((data.convoys || []).flatMap(c => c.occupied.map(p => p.join(","))));
 	const platforms = [], rails = [], signals = [], labels = [], named = new Set();
 	const labelBoxes = [], measure = document.createElement("canvas").getContext("2d");
-	function addLabel(text, p, stationLabel) {
+	function addLabel(text, p, stationLabel, late = false) {
+		const lines = Array.isArray(text) ? text : [text];
 		const [ax, ay] = xy(p), px = ax * scale, py = ay * scale;
 		measure.font = `${stationLabel ? 600 : 400} 14px system-ui`;
-		const w = measure.measureText(text).width + 4, h = 20;
+		const w = Math.max(...lines.map(line => measure.measureText(line).width)) + 4, h = lines.length * 18 + 4;
 		let box;
 		// Place nearby names in separate rows, in screen pixels rather than tiles.
 		for (let row = 0; row < 100; row++) {
-			const offset = (Math.floor(row / 2) + 1) * 22 * (row % 2 ? 1 : -1);
+			const offset = (Math.floor(row / 2) + 1) * (h + 2) * (row % 2 ? 1 : -1);
 			box = { x: Math.max(3, Math.min(px + 8, width * scale - w - 3)), y: Math.max(3, Math.min(py + offset, height * scale - h - 3)), w, h };
 			if (!labelBoxes.some(b => box.x < b.x + b.w + 4 && box.x + w + 4 > b.x && box.y < b.y + b.h && box.y + h > b.y)) break;
 		}
 		labelBoxes.push(box);
 		const x = box.x / scale, y = (box.y + 15) / scale;
-		labels.push(`<g><path class="network-label-leader" d="M${ax},${ay} L${x},${y}"/><text class="${stationLabel ? "network-station-label" : "network-train-label"}" x="${x}" y="${y}">${esc(text)}</text></g>`);
+		labels.push(`<g><path class="network-label-leader" d="M${ax},${ay} L${x},${y}"/><text class="${stationLabel ? "network-station-label" : "network-train-label"}${late ? " network-delay-late" : ""}" x="${x}" y="${y}">${lines.map((line, i) => `<tspan x="${x}" dy="${i ? 18 / scale : 0}">${esc(line)}</tspan>`).join("")}</text></g>`);
 	}
 	for (const t of tiles) {
 		const [x, y] = xy(t.p), ends = DIRS.filter(d => t.r & d).map(d => [x + DXY[d][0] * unit / 2, y + DXY[d][1] * unit / 2]);
@@ -375,7 +415,8 @@ function renderNetworkMap(data) {
 		}
 	}
 	for (const c of data.convoys || []) {
-		addLabel(operationNumber(c.name), c.pos, false);
+		const display = networkTrainDisplay(c, data);
+		addLabel(display.lines, c.pos, false, display.delay.seconds > 0);
 	}
 	svg.innerHTML = platforms.join("") + rails.join("") + signals.join("") + labels.join("");
 }

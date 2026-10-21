@@ -76,7 +76,8 @@ try {
 	const textBoxes = await page.locator("#networkMap text").evaluateAll(es => es.map(e => {
 		const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, width: b.width, height: b.height };
 	}));
-	assert.ok(textBoxes.every(b => b.height >= 13 && b.height <= 22), "large network fit keeps all labels readable");
+	const lineHeights = await page.locator("#networkMap tspan").evaluateAll(es => es.map(e => e.getBoundingClientRect().height));
+	assert.ok(lineHeights.every(h => h >= 13 && h <= 22), "large network fit keeps each label line readable");
 	for (let i = 0; i < textBoxes.length; i++) for (let j = i + 1; j < textBoxes.length; j++) {
 		const a = textBoxes[i], b = textBoxes[j];
 		assert.ok(!(a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y), "nearby labels do not overlap");
@@ -112,6 +113,14 @@ try {
 	await page.locator("#operationLate").fill("360"); await page.locator("#operationLate").dispatchEvent("change");
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /101 急行 終点行/);
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /101 急行 終点行/);
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
+	api.network.convoys[0].loading = false;
+	api.network.convoys[0].next_halt = "終点";
+	api.network.convoys[0].eta_seconds = 1200;
+	await page.locator("#networkTrains").getByText("推定遅延 5分00秒（終点 到着見込）", { exact: true }).waitFor();
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /推定遅延 5分00秒/);
+	assert.equal(await page.locator("#networkMap .network-train-label.network-delay-late").count(), 1);
 	await page.locator('[data-tab="setup"]').click();
 	await page.locator("#operationFile").setInputFiles({ name: "test-legacy.oud2", mimeType: "text/plain", buffer: Buffer.from(source.replace("OperationNumber0=A01", "Operation0B=3/950$/A01")) });
 	await page.locator("#operationFileStatus").getByText("test-legacy.oud2", { exact: false }).waitFor();
@@ -129,6 +138,8 @@ try {
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /運用照合なし/);
 	assert.doesNotMatch(await page.locator("#networkTrains").innerText(), /101 急行/);
+	assert.doesNotMatch(await page.locator("#networkMap .network-train-label").textContent(), /101 急行/);
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
 	await page.locator('[data-tab="run"]').click();
 	offline = true;
 	await page.locator("#networkSummary").getByText("在線情報を取得できません", { exact: false }).waitFor();

@@ -20,6 +20,7 @@
 #include "../player/simplay.h"
 #include "../tpl/inthashtable_tpl.h"
 #include "../vehicle/simvehicle.h"
+#include "../dataobj/schedule.h"
 #include <set>
 
 // the panel never needs more than this
@@ -167,6 +168,17 @@ void il_query::get_network_json(cbuffer_t &buf, koord3d seed)
 		const grund_t *g = welt->lookup(occupied[0]);
 		buf.append(",\"halt\":");
 		append_json_string(buf, g && g->get_halt().is_bound() ? g->get_halt()->get_name() : "");
+		buf.printf(",\"loading\":%s", c->is_loading() ? "true" : "false");
+		if(  c->is_loading() && c->get_arrived_time() != 0  ) {
+			buf.printf(",\"arrival_elapsed\":%u", (uint32)((uint64)(welt->get_ticks() - c->get_arrived_time()) * 86400 / welt->ticks_per_world_month));
+		}
+		else if(  !c->is_loading() && c->get_schedule() && c->get_schedule()->get_count()  ) {
+			const grund_t *target = welt->lookup(c->get_schedule()->get_current_entry().pos);
+			if(  target && target->get_halt().is_bound()  ) {
+				buf.append(",\"next_halt\":"); append_json_string(buf, target->get_halt()->get_name());
+				buf.printf(",\"eta_seconds\":%u", (uint32)((uint64)convoi_t::calc_ticks_until_arrival(c) * 86400 / welt->ticks_per_world_month));
+			}
+		}
 		buf.append(",\"occupied\":[");
 		for(  uint32 i = 0; i < occupied.get_count(); i++  ) {
 			if(  i  ) buf.append(",");
