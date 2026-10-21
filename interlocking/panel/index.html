@@ -9,6 +9,10 @@
 <body>
 <header>
 	<h1>TID 連動盤</h1>
+	<select id="panelMode" aria-label="表示モード">
+		<option value="legacy">連動盤</option>
+		<option value="network">全区間在線</option>
+	</select>
 	<span class="conn"><span class="dot" id="conndot"></span><span id="conntext">接続中…</span></span>
 	<select id="stationSel" title="連動駅"></select>
 	<div class="mode" id="modeBox">
@@ -26,6 +30,15 @@
 	<div id="mapwrap"><div id="viewbar"></div><svg id="map"></svg><div class="empty" id="mapEmpty">連動駅がありません。「設定」タブで駅を作成してください。</div></div>
 	<aside>
 		<section id="tab-run">
+			<div id="networkRun" hidden>
+			<h2>接続区間の在線 <span id="networkClock"></span></h2>
+			<p class="hint" id="networkSummary"></p>
+			<div class="row"><button id="networkZoomOut" aria-label="全区間地図を縮小">−</button><button id="networkFit">全体を表示</button><button id="networkZoomIn" aria-label="全区間地図を拡大">＋</button><span class="hint">灰：線路　赤：在線　丸：信号（マウスを重ねると詳細）</span></div>
+			<p class="hint" id="networkMapHint"></p>
+			<div id="networkMapWrap"><svg id="networkMap" role="img" aria-label="接続する全区間の線形と信号配置"></svg></div>
+			<div id="networkTrains" class="list"></div>
+			</div>
+			<div id="legacyRun">
 			<h2>接近表示</h2>
 			<div class="approach" id="approach"><span class="hint">待っている列車はありません</span></div>
 			<div id="deskBar" hidden></div>
@@ -47,8 +60,21 @@
 				<span style="--c: var(--occupied)">在線・予約</span>
 				<span style="--c: var(--preview)">進路の表示</span>
 			</div>
+			</div>
 		</section>
 		<section id="tab-setup" hidden>
+			<div id="networkSetup" hidden>
+			<h2>OuDiaSecondV2 運用情報</h2>
+			<p class="hint">ダイヤ未読込・未選択でも全接続区間の在線を表示できます。列車番号・種別・行先を照合する場合にダイヤを選択してください。</p>
+			<input type="file" id="operationFile" accept=".oud2">
+			<p class="hint" id="operationFileStatus">運用情報を保存した .oud2 ファイルを選択してください。</p>
+			<div class="row"><label>ダイヤ <select id="operationDiagram"></select></label><button id="operationClear">読込解除</button></div>
+			<div class="row"><label>早発の許容時間（秒）<input id="operationEarly" type="number" min="0" max="86399" step="1"></label></div>
+			<div class="row"><label>遅延の許容時間（秒）<input id="operationLate" type="number" min="0" max="86399" step="1"></label></div>
+			<p class="hint">車両名を運用番号として照合します。先頭の (数字)・（数字）は除きます。候補が複数ある場合は確定せず表示します。設定と読込データはこのブラウザに保存されます。</p>
+			<p class="hint">対象駅は上の駅一覧から選択します。連動駅の作成・変更は従来モードの「設定」で行ってください。</p>
+			</div>
+			<div id="legacySetup">
 			<div id="stationCfg"></div>
 			<h2>1. 連動駅を作る</h2>
 			<div class="row">
@@ -128,6 +154,7 @@
 
 			<h2>駅の削除</h2>
 			<button class="danger" id="btnDelStation">この連動駅を削除</button>
+			</div>
 		</section>
 		<section id="tab-log" hidden>
 			<h2>ログ</h2>
@@ -138,6 +165,7 @@
 <div id="toast"></div>
 
 <script src="core.js"></script>
+<script src="traffic.js"></script>
 <script src="operate.js"></script>
 <script src="render.js"></script>
 <script src="relay.js"></script>

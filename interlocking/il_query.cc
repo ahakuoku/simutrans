@@ -19,6 +19,8 @@
 #include "../obj/signal.h"
 #include "../player/simplay.h"
 #include "../tpl/inthashtable_tpl.h"
+#include "../vehicle/simvehicle.h"
+#include <set>
 
 // the panel never needs more than this
 #define IL_QUERY_MAX_AREA   160
@@ -107,6 +109,91 @@ void il_query::get_tracks_json(cbuffer_t &buf, koord p1, koord p2)
 	buf.append("}}");
 }
 
+
+void il_query::get_network_json(cbuffer_t &buf, koord3d seed)
+{
+	karte_t *welt = world();
+	vector_tpl<grund_t *> todo;
+	vector_tpl<weg_t *> ways;
+	std::set<weg_t *> reached;
+	std::set<grund_t *> grounds;
+	const auto add = [&](grund_t *g, weg_t *w) {
+		if(  w && w->get_waytype() == track_wt && reached.insert(w).second  ) {
+			todo.append(g); ways.append(w); grounds.insert(g);
+		}
+	};
+	grund_t *start = welt->lookup(seed);
+	if(  start && start->get_weg(track_wt)  ) {
+		const halthandle_t halt = start->get_halt();
+		if(  halt.is_bound()  ) {
+			FOR(slist_tpl<haltestelle_t::tile_t>, const &t, halt->get_tiles()) {
+				add(t.grund, t.grund->get_weg_nr(0));
+				add(t.grund, t.grund->get_weg_nr(1));
+			}
+		}
+		else { add(start, start->get_weg(track_wt)); }
+	}
+	// Unmasked physical connections: signals, reservations and turnout positions
+	// must not hide trains. get_neighbour handles slopes, bridges and tunnels.
+	// Track objects, rather than tiles, distinguish two disjoint diagonal legs.
+	for(  uint32 i = 0; i < todo.get_count(); i++  ) {
+		grund_t *g = todo[i];
+		const ribi_t::ribi r = ways[i]->get_ribi_unmasked();
+		for(  int d = 0; d < 4; d++  ) {
+			grund_t *to = NULL;
+			if(  (r & ribi_t::nesw[d]) && g->get_neighbour(to, track_wt, ribi_t::nesw[d])  ) {
+				add(to, to->get_weg(track_wt, ribi_t::backward(ribi_t::nesw[d])));
+			}
+		}
+	}
+	const uint32 seconds = (uint32)(((uint64)(welt->get_ticks() % welt->ticks_per_world_month) * 86400) / welt->ticks_per_world_month);
+	buf.printf("{\"type\":\"network\",\"time\":\"%02u:%02u:%02u\",\"seconds\":%u,\"track_count\":%u,\"convoys\":[",
+		seconds / 3600, seconds / 60 % 60, seconds % 60, seconds, (uint32)grounds.size());
+	bool first = true;
+	FOR(vector_tpl<convoihandle_t>, const c, welt->convoys()) {
+		if(  !c.is_bound() || c->in_depot() || !c->get_vehicle_count() || c->front()->get_waytype() != track_wt  ) continue;
+		vector_tpl<koord3d> occupied;
+		for(  uint16 i = 0; i < c->get_vehicle_count(); i++  ) {
+			const vehicle_t *v = c->get_vehikel(i);
+			const koord3d p = v->get_pos();
+			const grund_t *g = welt->lookup(p);
+			if(  g && reached.count(g->get_weg(track_wt, v->get_current_corner_set()))  ) occupied.append_unique(p);
+		}
+		if(  occupied.empty()  ) continue;
+		buf.printf("%s{\"id\":%u,\"name\":", first ? "" : ",", c.get_id());
+		first = false;
+		append_json_string(buf, c->get_name());
+		buf.append(",\"pos\":"); append_json_pos(buf, c->get_pos());
+		const grund_t *g = welt->lookup(occupied[0]);
+		buf.append(",\"halt\":");
+		append_json_string(buf, g && g->get_halt().is_bound() ? g->get_halt()->get_name() : "");
+		buf.append(",\"occupied\":[");
+		for(  uint32 i = 0; i < occupied.get_count(); i++  ) {
+			if(  i  ) buf.append(",");
+			append_json_pos(buf, occupied[i]);
+		}
+		buf.append("]}");
+	}
+	buf.append("],\"tiles\":[");
+	for(  uint32 i = 0; i < todo.get_count(); i++  ) {
+		grund_t *g = todo[i];
+		const ribi_t::ribi r = ways[i]->get_ribi_unmasked();
+		if(  i  ) buf.append(",");
+		buf.append("{\"p\":"); append_json_pos(buf, g->get_pos());
+		buf.printf(",\"r\":%u", (unsigned)r);
+		if(  g->get_halt().is_bound()  ) {
+			buf.append(",\"halt\":"); append_json_string(buf, g->get_halt()->get_name());
+		}
+		if(  signal_t *sig = g->find<signal_t>()  ) {
+			if(  sig->get_dir() & r  ) {
+				buf.printf(",\"s\":{\"dir\":%u,\"aspect\":\"%s\",\"name\":", (unsigned)sig->get_dir(), aspect_name(sig));
+				append_json_string(buf, sig->get_desc()->get_name()); buf.append("}");
+			}
+		}
+		buf.append("}");
+	}
+	buf.append("]}");
+}
 
 void il_query::get_halts_json(cbuffer_t &buf)
 {

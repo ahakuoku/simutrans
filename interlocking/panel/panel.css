@@ -219,3 +219,19 @@ body.relay .cfgbox .kinds button.on { background: #2e6b45; border-color: #46c06b
 .sidegrid { display: flex; flex-direction: column; gap: 3px; margin: 4px 0; }
 .sidegrid label { display: flex; justify-content: space-between; gap: 6px; font-size: 12px; }
 .sidegrid select { padding: 1px 4px; font-size: 12px; }
+#networkClock { color: var(--text); font-variant-numeric: tabular-nums; }
+#networkTrains { max-height: 300px; overflow: auto; }
+#networkTrains .item { display: block; overflow-wrap: anywhere; border-left: 3px solid var(--occupied); }
+#operationFile, #operationDiagram { max-width: 100%; }
+#operationEarly, #operationLate { width: 90px; }
+body.network-mode #mapwrap, body.network-mode #modeBox, body.network-mode #ownerInfo { display: none; }
+body.network-mode aside { width: 100%; max-width: none; }
+body.network-mode #networkTrains { max-height: none; }
+#networkMapWrap { overflow: auto; height: 60vh; min-height: 280px; background: #0f1319; border: 1px solid var(--line); margin-bottom: 12px; }
+#networkMap { display: block; }
+#networkMap .network-track { fill: none; stroke: var(--track); stroke-width: 2; }
+#networkMap .network-track.occupied { stroke: var(--occupied); stroke-width: 4; }
+#networkMap .network-platform { fill: var(--platform); }
+#networkMap text { fill: var(--text); font-size: var(--network-label-size, 14px); paint-order: stroke; stroke: #0f1319; stroke-width: var(--network-label-outline, 2px); }
+#networkMap .network-station-label { font-weight: 600; }
+#networkMap .network-label-leader { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }

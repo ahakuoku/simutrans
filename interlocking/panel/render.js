@@ -36,14 +36,19 @@ function renderFromGame() {
 }
 
 function render() {
+	renderPanelMode();
 	document.body.classList.toggle("relay", isRelay());
 	// the approach buzzer listens on every tab (not only while the relay board is shown)
 	if (station() && isRelay()) checkApproach(station());
 	renderHeader();
-	renderViewbar();
-	renderMap();
-	if (tab === "run") renderRun();
-	if (tab === "setup") renderSetup();
+	if (isNetworkMode()) {
+		if (tab === "run") renderNetwork();
+	} else {
+		renderViewbar();
+		renderMap();
+		if (tab === "run") renderRun();
+		if (tab === "setup") renderSetup();
+	}
 }
 
 function renderHeader() {

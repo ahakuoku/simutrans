@@ -623,6 +623,10 @@ static void handle_http(client_t &c, char *head, const char *body)
 			koord((sint16)get_query_int(query, "x1", 0), (sint16)get_query_int(query, "y1", 0)),
 			koord((sint16)get_query_int(query, "x2", 0), (sint16)get_query_int(query, "y2", 0)));
 	}
+	else if(  strcmp(target, "/api/network") == 0  ) {
+		il_query::get_network_json(json, koord3d((sint16)get_query_int(query, "x", -1),
+			(sint16)get_query_int(query, "y", -1), (sint8)get_query_int(query, "z", -128)));
+	}
 	else if(  strcmp(target, "/api/info") == 0  ) {
 		karte_t *welt = world();
 		// rot: how often the map was turned (each turn moves north a quarter clockwise on the coordinates)

@@ -216,7 +216,7 @@ function handleEvent(ev) {
 
 async function rotateAreas() {
 	// the game turns the areas it keeps
-	try { info = await api("/api/info"); } catch (e) { return; }
+	try { info = await api("/api/info"); halts = (await api("/api/halts")).halts; } catch (e) { return; }
 	log("マップが回転しました");
 	await refreshTracks();
 	render();
@@ -440,6 +440,7 @@ async function loop() {
 		await refreshStatus();
 		await pollEvents();
 		await refreshTracks();
+		await refreshNetwork();
 		// the company the game operates with (the player may switch companies in the game)
 		if (++infoTick % 4 === 0) { try { info = await api("/api/info"); } catch (e) {} }
 		setConnected(true);
