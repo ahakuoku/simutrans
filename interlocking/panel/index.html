@@ -13,6 +13,10 @@
 		<option value="legacy">連動盤</option>
 		<option value="network">全区間在線</option>
 	</select>
+	<select id="stationNameMode" aria-label="駅名の表示方法">
+		<option value="game">駅名：ゲーム内</option>
+		<option value="alias">駅名：エイリアス</option>
+	</select>
 	<span class="conn"><span class="dot" id="conndot"></span><span id="conntext">接続中…</span></span>
 	<select id="stationSel" title="連動駅"></select>
 	<div class="mode" id="modeBox">
@@ -72,7 +76,13 @@
 			<div class="row"><label>ダイヤ <select id="operationDiagram"></select></label><button id="operationClear">読込解除</button></div>
 			<div class="row"><label>早発の許容時間（秒）<input id="operationEarly" type="number" min="0" max="86399" step="1"></label></div>
 			<div class="row"><label>遅延の許容時間（秒）<input id="operationLate" type="number" min="0" max="86399" step="1"></label></div>
-			<p class="hint">車両名を運用番号として照合します。先頭の (数字)・（数字）は除きます。候補が複数ある場合は確定せず表示します。設定と読込データはこのブラウザに保存されます。</p>
+			<h2>駅名エイリアス</h2>
+			<p class="hint">ゲーム内の駅名 → OuDiaSecondの駅名を設定します。同じゲームの全連動盤・全ブラウザ・ネットワーク参加PCで共有し、セーブデータにも保存します。未設定の駅は同じ名前で照合します。</p>
+			<datalist id="aliasGameNames"></datalist><datalist id="aliasOudNames"></datalist>
+			<div id="stationAliases"></div>
+			<div class="row"><button id="stationAliasAdd">対応を追加</button><button id="stationAliasSave" class="primary">エイリアスを保存</button></div>
+			<p class="hint" id="stationAliasStatus"></p>
+			<p class="hint">車両名を運用番号として照合します。先頭の (数字)・（数字）は除きます。候補が複数ある場合は確定せず表示します。ダイヤの読込・選択・許容時間はこのブラウザに保存されます。</p>
 			<p class="hint">対象駅は上の駅一覧から選択します。連動駅の作成・変更は従来モードの「設定」で行ってください。</p>
 			</div>
 			<div id="legacySetup">

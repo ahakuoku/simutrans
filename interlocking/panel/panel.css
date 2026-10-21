@@ -237,3 +237,5 @@ body.network-mode #networkTrains { max-height: none; }
 #networkMap .network-label-leader { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .network-delay-late { color: var(--occupied); }
 #networkMap text.network-delay-late { fill: var(--occupied); }
+.station-alias-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.station-alias-row input { flex: 1; min-width: 160px; }

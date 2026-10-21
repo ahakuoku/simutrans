@@ -53,7 +53,7 @@ function render() {
 
 function renderHeader() {
 	const sel = document.getElementById("stationSel");
-	const opts = status.stations.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join("");
+	const opts = status.stations.map(s => `<option value="${s.id}">${esc(displayStationName(s.name))}</option>`).join("");
 	if (sel.dataset.opts !== opts) { sel.innerHTML = opts || "<option>（連動駅なし）</option>"; sel.dataset.opts = opts; }
 	if (station()) sel.value = stationId;
 	const st = station();
@@ -324,7 +324,7 @@ function renderMap() {
 		if (!t.h || named.has(t.h) || !isVisible(t)) continue;
 		named.add(t.h);
 		const hl = halts.find(x => x.id === t.h);
-		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, hl.name, { "font-size": 11, fill: "#9fb3cf" });
+		if (hl) label(g, cx(t.p), cy(t.p) - CELL / 2, 2, displayStationName(hl.name), { "font-size": 11, fill: "#9fb3cf" });
 	}
 	placeLabels();
 	// choosing game tiles for a part of the custom panel
@@ -433,7 +433,7 @@ function renderRun() {
 
 	// approach indication: a train holds an interlocked signal at danger
 	// the line (路線) of the train names its type (普通・快速 …): shown first, then the train and its next stop
-	const train = (x) => `${lineBadge(x.line)}${esc(x.train)}${x.dest ? ` <span class="hint">次 ${esc(x.dest)}</span>` : ""}`;
+	const train = (x) => `${lineBadge(x.line)}${esc(x.train)}${x.dest ? ` <span class="hint">次 ${esc(displayStationName(x.dest))}</span>` : ""}`;
 	const waiting = st.signals.filter(s => s.train && s.aspect === "red").map(s => `<div>${signalLabel(st, s.pos)}：${train(s)} 待機中</div>`);
 	const leaving = (st.departures || []).filter(d => d.train && d.waiting && !status.routes.some(r => key(r.start) === key(d.pos) && r.state !== "idle"))
 		.map(d => `<div>${signalLabel(st, d.pos)}：${train(d)} ${d.shunt ? "入換待ち" : "発車待ち"}</div>`);

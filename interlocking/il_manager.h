@@ -243,6 +243,9 @@ private:
 	~interlocking_manager_t() { reset(); }
 
 	vector_tpl<il_station_t *> stations;
+	// One dictionary for the whole game, independent of stations and players.
+	vector_tpl<plainstring> alias_game_names;
+	vector_tpl<plainstring> alias_dia_names;
 	vector_tpl<il_route_t *> routes;
 
 	void rdwr_blob(il_blob_t &b);

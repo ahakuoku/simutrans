@@ -224,6 +224,7 @@ async function rotateAreas() {
 
 async function refreshStatus() {
 	status = await api("/api/status");
+	syncSharedStationAliases(status);
 	if (!station() && status.stations.length) {
 		stationId = status.stations[0].id;
 		localStore("station", stationId);
@@ -601,7 +602,7 @@ function sidingName(st, i) {
 		// a stop used as a siding: its name (numbered when it has several tracks)
 		const hl = halts.find(h => h.id === sd.halt);
 		const same = layout.sidings.filter(x => x.halt === sd.halt);
-		if (hl) return hl.name + (same.length > 1 ? same.indexOf(sd) + 1 : "");
+		if (hl) return displayStationName(hl.name) + (same.length > 1 ? same.indexOf(sd) + 1 : "");
 	}
 	return "留置" + (i + 1);
 }

@@ -4,11 +4,13 @@
 // Independent of automatic/operator operation and electric/relay panel kinds.
 // Existing browsers start in the original panel until the new mode is selected.
 let panelMode = localStore("panelMode") === "network" ? "network" : "legacy";
+let stationNameMode = localStore("stationNameMode") === "alias" ? "alias" : "game";
 const isNetworkMode = () => panelMode === "network";
 function renderPanelMode() {
 	const networkMode = isNetworkMode();
 	document.body.classList.toggle("network-mode", networkMode);
 	document.getElementById("panelMode").value = panelMode;
+	document.getElementById("stationNameMode").value = stationNameMode;
 	for (const id of ["networkRun", "networkSetup"]) document.getElementById(id).hidden = !networkMode;
 	for (const id of ["legacyRun", "legacySetup"]) document.getElementById(id).hidden = networkMode;
 }
@@ -249,8 +251,17 @@ function restoreLegacyOperations(records, stations, settings, add) {
 	}
 }
 
+function oudStationName(name, aliases = operationConfig.stationAliases) {
+	return (aliases || []).find(pair => pair[0] === name)?.[1] || name;
+}
+
+function displayStationName(name) {
+	return stationNameMode === "alias" ? oudStationName(name) : name;
+}
+
 function matchOperation(name, seconds, diagram, early, late, halt = "") {
 	if (!diagram || !Number.isFinite(seconds)) return [];
+	halt = oudStationName(halt);
 	const candidates = new Map(), op = operationNumber(name);
 	for (const entry of diagram.entries) {
 		if (entry.operation !== op) continue;
@@ -281,19 +292,19 @@ function trainDelay(convoy, seconds, entry) {
 	}
 	const stops = entry.stops.slice(entry.from, entry.to + 1);
 	if (convoy.loading === true && convoy.halt) {
-		const here = stops.filter(s => s.name === convoy.halt);
+		const here = stops.filter(s => s.name === oudStationName(convoy.halt));
 		const departure = nearest(here.map(s => s.departure), seconds);
 		let arrival = null;
 		if (Number.isFinite(convoy.arrival_elapsed) && convoy.arrival_elapsed >= 0 && convoy.arrival_elapsed < 86400) {
 			arrival = nearest(here.map(s => s.arrival), seconds - convoy.arrival_elapsed);
 		}
-		if (departure && departure.diff > 0 && (!arrival || departure.diff > arrival.diff)) return result(departure.diff, `${convoy.halt} 発車待ち`);
-		if (arrival) return result(arrival.diff, `${convoy.halt} 到着基準`);
+		if (departure && departure.diff > 0 && (!arrival || departure.diff > arrival.diff)) return result(departure.diff, `${displayStationName(convoy.halt)} 発車待ち`);
+		if (arrival) return result(arrival.diff, `${displayStationName(convoy.halt)} 到着基準`);
 		// At an origin only a departure time may exist; waiting before it is on time.
-		if (departure && !here.some(s => s.arrival != null)) return result(0, `${convoy.halt} 発車待ち`);
+		if (departure && !here.some(s => s.arrival != null)) return result(0, `${displayStationName(convoy.halt)} 発車待ち`);
 	} else if (convoy.loading === false && convoy.next_halt && Number.isFinite(convoy.eta_seconds) && convoy.eta_seconds >= 0 && convoy.eta_seconds < 86400) {
-		const arrival = nearest(stops.filter(s => s.name === convoy.next_halt).map(s => s.arrival ?? s.departure), seconds + convoy.eta_seconds);
-		if (arrival) return result(arrival.diff, `${convoy.next_halt} 到着見込`, true);
+		const arrival = nearest(stops.filter(s => s.name === oudStationName(convoy.next_halt)).map(s => s.arrival ?? s.departure), seconds + convoy.eta_seconds);
+		if (arrival) return result(arrival.diff, `${displayStationName(convoy.next_halt)} 到着見込`, true);
 	}
 	return unknown;
 }
@@ -315,9 +326,24 @@ try {
 let network = null, networkSeed = "", networkError = "", networkDue = 0;
 let networkMapZoom = 1;
 let networkMapRendered = null;
-const operationConfig = { early: 120, late: 1800, diagram: -1 };
+const operationConfig = { early: 120, late: 1800, diagram: -1, stationAliases: [] };
 try { Object.assign(operationConfig, JSON.parse(localStore("operationConfig") || "{}")); } catch (e) {}
-function saveOperationConfig() { localStore("operationConfig", JSON.stringify(operationConfig)); }
+operationConfig.stationAliases = [];
+let sharedAliasesReady = false, aliasDraftDirty = false, aliasSaving = false, aliasDraftBase = [];
+function saveOperationConfig() {
+	const { stationAliases, ...config } = operationConfig;
+	localStore("operationConfig", JSON.stringify(config));
+}
+function syncSharedStationAliases(state) {
+	const wasReady = sharedAliasesReady;
+	sharedAliasesReady = Array.isArray(state.station_aliases);
+	if (!sharedAliasesReady) return;
+	const pairs = state.station_aliases.filter(p => Array.isArray(p) && p.length === 2 && p.every(n => typeof n === "string" && n.length));
+	if (wasReady && JSON.stringify(pairs) === JSON.stringify(operationConfig.stationAliases)) return;
+	operationConfig.stationAliases = pairs;
+	if (!aliasDraftDirty && !aliasSaving) renderStationAliasSettings();
+	else document.getElementById("stationAliasStatus").textContent = "ほかの盤で共通設定が更新されました。編集中の変更は保存するまで適用されません。";
+}
 
 async function refreshNetwork() {
 	if (!isNetworkMode()) return;
@@ -349,13 +375,13 @@ function renderNetwork() {
 	summary.textContent = `接続線路 ${network.track_count} タイル・在線 ${network.convoys.length} 編成` + (diagram ? ` ／ ${diagram.name}` : operationData ? " ／ ダイヤ未選択（在線表示のみ）" : " ／ ダイヤ未読込（在線表示のみ）");
 	list.innerHTML = network.convoys.map(c => {
 		const display = networkTrainDisplay(c, network);
-		return `<div class="item"><b>${esc(display.text)}</b><div class="${display.delay.seconds > 0 ? "network-delay-late" : ""}">${esc(display.delay.text)}</div><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint">${esc(c.halt || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
+		return `<div class="item"><b>${esc(display.text)}</b><div class="${display.delay.seconds > 0 ? "network-delay-late" : ""}">${esc(display.delay.text)}</div><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint" title="${esc(c.halt || "")}">${esc(displayStationName(c.halt) || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
 	}).join("") || '<p class="hint">接続区間に列車はいません</p>';
 }
 
 function renderNetworkMap(data) {
 	const svg = document.getElementById("networkMap"), wrap = document.getElementById("networkMapWrap"), hint = document.getElementById("networkMapHint");
-	const size = `${wrap.clientWidth},${wrap.clientHeight},${networkMapZoom},${JSON.stringify(operationConfig)}`;
+	const size = `${wrap.clientWidth},${wrap.clientHeight},${networkMapZoom},${stationNameMode},${JSON.stringify(operationConfig)}`;
 	if (networkMapRendered?.data === data && networkMapRendered.size === size && networkMapRendered.operations === operationData) return;
 	networkMapRendered = { data, size, operations: operationData };
 	const tiles = data?.tiles || [];
@@ -402,7 +428,7 @@ function renderNetworkMap(data) {
 		const title = esc(`${t.halt || "線路"} (${t.p.join(", ")})`);
 		if (t.halt) {
 			platforms.push(`<rect class="network-platform" x="${x - 8}" y="${y - 8}" width="16" height="16"><title>${title}</title></rect>`);
-			if (!named.has(t.halt)) { named.add(t.halt); addLabel(t.halt, t.p, true); }
+			if (!named.has(t.halt)) { named.add(t.halt); addLabel(displayStationName(t.halt), t.p, true); }
 		}
 		let path = "";
 		if (ends.length === 2) path = `M${ends[0]} Q${x},${y} ${ends[1]}`;
@@ -435,13 +461,82 @@ document.getElementById("panelMode").addEventListener("change", e => {
 	if (isNetworkMode()) refreshNetwork().then(render);
 });
 
+document.getElementById("stationNameMode").addEventListener("change", e => {
+	stationNameMode = e.target.value === "alias" ? "alias" : "game";
+	localStore("stationNameMode", stationNameMode);
+	render();
+});
+
 function renderOperationSettings() {
 	const sel = document.getElementById("operationDiagram");
 	sel.innerHTML = '<option value="-1">選択しない（在線表示のみ）</option>' + (operationData?.diagrams || []).map((d, i) => `<option value="${i}">${esc(d.name)}（${d.entries.length}件）</option>`).join("");
 	sel.value = operationData?.diagrams[operationConfig.diagram] ? operationConfig.diagram : -1;
 	document.getElementById("operationFileStatus").textContent = operationData ? `${operationData.file}：運用情報を読込済み` : "運用情報を保存した .oud2 ファイルを選択してください。";
 	for (const [field, id] of [["early", "operationEarly"], ["late", "operationLate"]]) document.getElementById(id).value = operationConfig[field];
+	renderStationAliasSettings();
+	renderStationAliasSuggestions();
 }
+
+function renderStationAliasSettings() {
+	document.getElementById("stationAliases").innerHTML = "";
+	for (const pair of operationConfig.stationAliases) addStationAliasRow(pair);
+	aliasDraftBase = operationConfig.stationAliases.map(p => p.slice()); aliasDraftDirty = false;
+	document.getElementById("stationAliasStatus").textContent = sharedAliasesReady ? `${operationConfig.stationAliases.length}件をゲーム共通設定に保存済み（全連動盤・全ブラウザで共有）` : "共通設定を取得中です。取得できない場合はゲーム本体を更新してください。";
+}
+
+function renderStationAliasSuggestions() {
+	const game = [...new Set(halts.map(h => h.name))].sort((a, b) => a.localeCompare(b, "ja"));
+	const oud = [...new Set((operationData?.diagrams || []).flatMap(d => d.entries.flatMap(e => e.stops.map(s => s.name))).filter(Boolean))].sort((a, b) => a.localeCompare(b, "ja"));
+	document.getElementById("aliasGameNames").innerHTML = game.map(n => `<option value="${esc(n)}"></option>`).join("");
+	document.getElementById("aliasOudNames").innerHTML = oud.map(n => `<option value="${esc(n)}"></option>`).join("");
+}
+
+function addStationAliasRow(pair = ["", ""]) {
+	const row = document.createElement("div"); row.className = "station-alias-row";
+	row.innerHTML = `<input class="alias-game" aria-label="ゲーム内の駅名" list="aliasGameNames" placeholder="ゲーム内の駅名" value="${esc(pair[0])}"><span>→</span><input class="alias-oud" aria-label="OuDiaSecondの駅名" list="aliasOudNames" placeholder="OuDiaSecondの駅名" value="${esc(pair[1])}"><button type="button" aria-label="この駅名エイリアスを削除">削除</button>`;
+	row.querySelector("button").addEventListener("click", () => { row.remove(); stationAliasesEdited(); });
+	for (const input of row.querySelectorAll("input")) {
+		input.addEventListener("input", stationAliasesEdited);
+		input.addEventListener("focus", renderStationAliasSuggestions);
+	}
+	document.getElementById("stationAliases").appendChild(row);
+	return row;
+}
+function stationAliasesEdited() { aliasDraftDirty = true; document.getElementById("stationAliasStatus").textContent = "未保存の変更があります。「エイリアスを保存」で全連動盤に適用します。"; }
+document.getElementById("stationAliasAdd").addEventListener("click", () => {
+	addStationAliasRow().querySelector("input").focus(); stationAliasesEdited();
+});
+function setAliasSaving(saving) {
+	aliasSaving = saving;
+	for (const id of ["stationAliasSave", "stationAliasAdd"]) document.getElementById(id).disabled = saving;
+	for (const input of document.querySelectorAll(".station-alias-row input, .station-alias-row button")) input.disabled = saving;
+}
+document.getElementById("stationAliasSave").addEventListener("click", async () => {
+	if (aliasSaving) return;
+	if (!sharedAliasesReady) { toast("ゲーム共通設定を取得できません。ゲーム本体を更新してください"); return; }
+	const pairs = [], seen = new Set();
+	for (const row of document.querySelectorAll(".station-alias-row")) {
+		const game = row.querySelector(".alias-game").value.trim(), oud = row.querySelector(".alias-oud").value.trim();
+		if (!game && !oud) continue;
+		if (!game || !oud) { toast("ゲーム内とOuDiaSecondの両方の駅名を入力してください"); return; }
+		if (seen.has(game)) { toast(`ゲーム内の駅名「${game}」が重複しています。対応先は1つだけ指定してください`); return; }
+		if (new TextEncoder().encode(game).length > 512 || new TextEncoder().encode(oud).length > 512) { toast("駅名はそれぞれUTF-8で512バイト以内にしてください"); return; }
+		seen.add(game); pairs.push([game, oud]);
+	}
+	if (pairs.length > 512) { toast("駅名エイリアスは512件までです"); return; }
+	const base = new Map(aliasDraftBase), commands = [];
+	for (const [game, oud] of pairs) if (base.get(game) !== oud) commands.push(`alias_set,${encodeURIComponent(game)},${encodeURIComponent(oud)}`);
+	for (const [game] of base) if (!seen.has(game)) commands.push(`alias_del,${encodeURIComponent(game)}`);
+	setAliasSaving(true);
+	try {
+		for (const cmd of commands) {
+			const result = await commandResult(cmd);
+			if (!result.ok) throw new Error(tr(result.error));
+		}
+		await refreshStatus(); renderStationAliasSettings(); render();
+	} catch (err) { toast("共通設定を保存できませんでした（一部は反映されている場合があります）: " + err.message); }
+	finally { setAliasSaving(false); }
+});
 
 document.getElementById("operationFile").addEventListener("change", async e => {
 	const file = e.target.files[0]; if (!file) return;

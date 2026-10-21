@@ -132,6 +132,11 @@ def run(args):
         # wait for the scenario to build the layout (signal S1 at (3,5,0))
         wait_until(lambda: any(s["pos"] == [3, 5, 0] for s in p.request("signals 0 0 15 15")["signals"]), 60, "layout")
         print("[1] configure the interlocking")
+        check(p.cmd("alias_set,%E3%82%B2%E3%83%BC%E3%83%A0%E9%A7%85,Diagram%2CStation")["ok"], "set a game-wide alias with UTF-8 and a comma")
+        check(p.status()["station_aliases"] == [["ゲーム駅", "Diagram,Station"]], "alias dictionary is global status, independent of stations")
+        check(not p.cmd("alias_set,%00,bad")["ok"], "invalid NUL alias rejected")
+        check(p.cmd("alias_set,Other,Old")["ok"] and p.cmd("alias_set,Other,New")["ok"], "overwrite one shared alias")
+        check(p.cmd("alias_del,Other")["ok"], "delete one shared alias")
         r = p.cmd("st_new,A station, east")
         check(r["ok"], "create station")
         st0 = p.status()["stations"][0]
@@ -501,6 +506,7 @@ def run(args):
     try:
         p = Panel(PORT)
         loaded = wait_until(lambda: (lambda s: s if s["stations"] else None)(p.status()), 60, "loaded status")
+        check(loaded["station_aliases"] == saved["station_aliases"] == [["ゲーム駅", "Diagram,Station"]], "game-wide aliases survive saving/loading")
         strip_st = lambda sts: [(st["id"], st["name"], st["owner"], st["manual"], [sg["pos"] for sg in st["signals"]], [(d["pos"], d["tiles"]) for d in st["departures"]], st["labels"], st["levers"],
                                  st["siding_halts"], [d.get("shunt", False) for d in st["departures"]],
                                  st["pairs"], st["sides"], st["shunt_levers"], st["kind"], st["rot"], st["t_approach"], st["t_shunt"], st["t_throw"], st["operators"], st["slevers"], [x["pos"] for x in st["points"]], st["areas"], st["area_of"], st.get("view")) for st in sts]

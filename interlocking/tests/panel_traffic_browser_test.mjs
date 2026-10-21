@@ -12,7 +12,7 @@ let offline = false;
 let networkRequests = 0, trackRequests = 0;
 const station = { id: 1, name: "始発", owner: 0, manual: false, signals: [], departures: [], view: [0, 0, 10, 10, 1] };
 const api = {
-	status: { stations: [station], routes: [] },
+	status: { stations: [station], routes: [], station_aliases: [] },
 	halts: { halts: [{ id: 1, name: "始発", owner: 0, tiles: [[1, 1, 0]] }] },
 	info: { map: [64, 64], player: 0, players: [{ nr: 0, name: "鉄道" }] },
 	events: { last: 0, events: [] },
@@ -25,6 +25,23 @@ const api = {
 const server = http.createServer((req, res) => {
 	const url = new URL(req.url, "http://localhost");
 	if (url.pathname.startsWith("/api/")) {
+		if (url.pathname === "/api/cmd") {
+			let body = "";
+			req.on("data", chunk => body += chunk);
+			req.on("end", () => {
+				const [cmd, key, value] = body.split(",");
+				const pairs = new Map(api.status.station_aliases);
+				if (cmd === "alias_set") pairs.set(decodeURIComponent(key), decodeURIComponent(value));
+				if (cmd === "alias_del") pairs.delete(decodeURIComponent(key));
+				api.status.station_aliases = [...pairs];
+				api.events.events.push({ seq: ++api.events.last, type: "result", command: body, ok: true });
+				res.end("{}");
+			}); return;
+		}
+		if (url.pathname === "/api/events") {
+			res.setHeader("Content-Type", "application/json");
+			res.end(JSON.stringify({ last: api.events.last, events: api.events.events.filter(e => e.seq > Number(url.searchParams.get("since"))) })); return;
+		}
 		if (url.pathname === "/api/network") networkRequests++;
 		if (url.pathname === "/api/tracks") trackRequests++;
 		if (offline && url.pathname === "/api/network") { res.writeHead(503).end(); return; }
@@ -45,6 +62,7 @@ try {
 	await page.locator("#conntext").getByText("ゲームに接続中", { exact: true }).waitFor();
 	assert.equal(await page.locator("#panelMode").inputValue(), "legacy");
 	assert.deepEqual(await page.locator("#panelMode option").allTextContents(), ["連動盤", "全区間在線"]);
+	assert.equal(await page.locator("#stationNameMode").inputValue(), "game");
 	assert.equal(await page.locator("#legacyRun").isVisible(), true);
 	assert.equal(await page.locator("#networkRun").isVisible(), false);
 	assert.equal(networkRequests, 0);
@@ -116,11 +134,59 @@ try {
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /101 急行 終点行/);
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
 	api.network.convoys[0].loading = false;
-	api.network.convoys[0].next_halt = "終点";
+	api.network.convoys[0].next_halt = "ゲーム終点";
 	api.network.convoys[0].eta_seconds = 1200;
-	await page.locator("#networkTrains").getByText("推定遅延 5分00秒（終点 到着見込）", { exact: true }).waitFor();
+	await page.locator('[data-tab="setup"]').click();
+	await page.locator("#stationAliasAdd").click();
+	await page.locator(".alias-game").fill("ゲーム終点");
+	await page.locator(".alias-oud").fill("終点");
+	await page.locator("#stationAliasSave").click();
+	await page.locator("#stationAliasStatus").getByText("1件をゲーム共通設定", { exact: false }).waitFor();
+	await page.locator('[data-tab="run"]').click();
+	await page.locator("#networkTrains").getByText("推定遅延 5分00秒（ゲーム終点 到着見込）", { exact: true }).waitFor();
+	// A separate browser context has no localStorage from the first panel.
+	const otherContext = await browser.newContext();
+	const other = await otherContext.newPage();
+	await other.goto(`http://127.0.0.1:${server.address().port}`);
+	await other.locator("#panelMode").selectOption("network");
+	await other.locator('[data-tab="setup"]').click();
+	await other.locator(".alias-game").waitFor();
+	assert.equal(await other.locator(".alias-game").inputValue(), "ゲーム終点");
+	assert.equal(await other.locator(".alias-oud").inputValue(), "終点");
+	await other.locator(".alias-oud").fill("別終点");
+	await other.locator("#stationAliasSave").click();
+	await page.waitForFunction(() => oudStationName("ゲーム終点") === "別終点");
+	await page.locator("#networkTrains").getByText("遅延不明", { exact: true }).waitFor();
+	await other.locator("#stationAliasStatus").getByText("1件をゲーム共通設定", { exact: false }).waitFor();
+	await other.locator(".alias-oud").fill("終点");
+	await other.locator("#stationAliasSave").click();
+	await page.waitForFunction(() => oudStationName("ゲーム終点") === "終点");
+	await page.locator("#networkTrains").getByText("推定遅延 5分00秒（ゲーム終点 到着見込）", { exact: true }).waitFor();
+	await otherContext.close();
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /推定遅延 5分00秒/);
 	assert.equal(await page.locator("#networkMap .network-train-label.network-delay-late").count(), 1);
+	api.network.time = "10:21:00"; api.network.seconds = 37260;
+	api.network.convoys[0].loading = true; api.network.convoys[0].halt = "ゲーム終点"; api.network.convoys[0].arrival_elapsed = 0;
+	await page.locator("#networkTrains").getByText("遅延 1分00秒（ゲーム終点 到着基準）", { exact: true }).waitFor();
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延 1分00秒/);
+	await page.locator("#stationNameMode").selectOption("alias");
+	assert.match(await page.locator("#networkTrains").innerText(), /遅延 1分00秒（終点 到着基準）/);
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /終点 到着基準/);
+	assert.doesNotMatch(await page.locator("#networkMap .network-train-label").textContent(), /ゲーム終点/);
+	api.network.tiles[0].halt = "ゲーム終点";
+	await page.locator("#networkMap .network-station-label").getByText("終点", { exact: true }).waitFor();
+	station.signals = [{ pos: [1, 1, 0], aspect: "red", train: "(7) A01", dest: "ゲーム終点" }];
+	await page.locator("#panelMode").selectOption("legacy");
+	await page.locator("#approach").getByText("次 終点", { exact: false }).waitFor();
+	assert.doesNotMatch(await page.locator("#approach").innerText(), /ゲーム終点/);
+	await page.locator("#stationNameMode").selectOption("game");
+	assert.match(await page.locator("#approach").innerText(), /次 ゲーム終点/);
+	await page.locator("#stationNameMode").selectOption("alias");
+	await page.locator("#panelMode").selectOption("network");
+	api.network.tiles[0].halt = "始発";
+	station.signals = [];
+	api.network.time = "10:05:00"; api.network.seconds = 36300;
+	api.network.convoys[0].loading = false; api.network.convoys[0].halt = "";
 	await page.locator('[data-tab="setup"]').click();
 	await page.locator("#operationFile").setInputFiles({ name: "test-legacy.oud2", mimeType: "text/plain", buffer: Buffer.from(source.replace("OperationNumber0=A01", "Operation0B=3/950$/A01")) });
 	await page.locator("#operationFileStatus").getByText("test-legacy.oud2", { exact: false }).waitFor();
@@ -131,9 +197,26 @@ try {
 	await page.reload();
 	await page.locator("#networkTrains").getByText("101 急行 終点行").waitFor();
 	assert.equal(await page.locator("#panelMode").inputValue(), "network");
+	assert.equal(await page.locator("#stationNameMode").inputValue(), "alias");
 	await page.locator('[data-tab="setup"]').click();
 	assert.equal(await page.locator("#operationEarly").inputValue(), "45");
 	assert.equal(await page.locator("#operationLate").inputValue(), "360");
+	assert.equal(await page.locator(".alias-game").inputValue(), "ゲーム終点");
+	assert.equal(await page.locator(".alias-oud").inputValue(), "終点");
+	await page.locator("#stationAliasAdd").click();
+	await page.locator(".alias-game").last().fill("ゲーム終点");
+	await page.locator(".alias-oud").last().fill("別の駅");
+	await page.locator("#stationAliasSave").click();
+	assert.match(await page.locator("#toast").innerText(), /重複/);
+	assert.equal(api.status.station_aliases.length, 1);
+	await page.locator(".station-alias-row").last().getByRole("button", { name: "この駅名エイリアスを削除" }).click();
+	await page.locator(".station-alias-row").getByRole("button", { name: "この駅名エイリアスを削除" }).click();
+	await page.locator("#stationAliasSave").click();
+	await page.locator("#stationAliasStatus").getByText("0件をゲーム共通設定", { exact: false }).waitFor();
+	await page.locator('[data-tab="run"]').click();
+	assert.match(await page.locator("#networkTrains").innerText(), /遅延不明/);
+	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
+	await page.locator('[data-tab="setup"]').click();
 	await page.locator("#operationDiagram").selectOption("-1");
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /運用照合なし/);

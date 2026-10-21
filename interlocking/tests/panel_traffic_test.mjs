@@ -109,6 +109,24 @@ assert.equal(run('trainDelay({},36600,null).text'), "遅延不明");
 assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},35900,{from:0,to:0,stops:[{name:"A",arrival:null,departure:36000}]}).text'), "定刻（A 発車待ち）");
 assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:60},660,{from:0,to:0,stops:[{name:"A",arrival:87000,departure:87120}]}).seconds'), 0);
 
+assert.equal(run('oudStationName("ゲームA", [["ゲームA","A"]])'), "A");
+assert.equal(run('oudStationName("未設定", [["ゲームA","A"]])'), "未設定");
+assert.equal(run('oudStationName("ゲームA", [["ゲームA","A"],["A","B"]])'), "A", "aliases are a direct game-to-diagram mapping");
+run('operationConfig.stationAliases = [["ゲームA","A"],["ゲームC","C"]];');
+assert.equal(run('trainDelay({loading:true,halt:"ゲームA",arrival_elapsed:0},36120,delayEntry).text'), "遅延 2分00秒（ゲームA 到着基準）");
+assert.equal(run('trainDelay({loading:false,next_halt:"ゲームC",eta_seconds:900},36600,delayEntry).text'), "推定遅延 5分00秒（ゲームC 到着見込）");
+context.aliasDiagram = { entries: [{ ...context.delayEntry, id: "alias", operation: "A01", start: 36000, end: 37200 }] };
+assert.equal(run('matchOperation("A01",37000,aliasDiagram,0,0,"ゲームA").length'), 0, "alias applies to the station identification window");
+assert.equal(run('matchOperation("A01",36000,aliasDiagram,0,0,"ゲームA").length'), 1);
+assert.equal(run('displayStationName("ゲームA")'), "ゲームA");
+run('stationNameMode = "alias";');
+assert.equal(run('displayStationName("ゲームA")'), "A");
+assert.equal(run('displayStationName("未設定")'), "未設定");
+assert.equal(run('trainDelay({loading:false,next_halt:"ゲームC",eta_seconds:900},36600,delayEntry).text'), "推定遅延 5分00秒（C 到着見込）");
+assert.equal(run('matchOperation("A01",36000,aliasDiagram,0,0,"ゲームA").length'), 1);
+run('stationNameMode = "game";');
+run('operationConfig.stationAliases = [];');
+
 if (process.argv[2]) {
 	context.source = fs.readFileSync(process.argv[2], "utf8");
 	const result = run('parseOudOperations(source).map(d => ({name:d.name, entries:d.entries.length}))');
