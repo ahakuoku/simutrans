@@ -168,24 +168,43 @@ void il_query::get_network_json(cbuffer_t &buf, koord3d seed)
 		const grund_t *g = welt->lookup(occupied[0]);
 		buf.append(",\"halt\":");
 		append_json_string(buf, g && g->get_halt().is_bound() ? g->get_halt()->get_name() : "");
-		buf.printf(",\"loading\":%s", c->is_loading() ? "true" : "false");
+		const schedule_t *schedule = c->get_schedule();
+		const bool editing = c->get_state() == convoi_t::EDIT_SCHEDULE;
+		bool loading = c->is_loading();
+		// Opening the editor changes LOADING to EDIT_SCHEDULE. A convoy that
+		// already reached the scheduled platform is still dwelling there.
+		if(  editing && schedule && schedule->get_count() && g && g->get_halt().is_bound()  ) {
+			const route_t *route = c->get_route();
+			const halthandle_t target = haltestelle_t::get_stoppable_halt(schedule->get_current_entry().pos, c->get_owner(), track_wt);
+			loading = target == g->get_halt() && !route->empty() && route->back() == c->front()->get_pos() && c->front()->get_steps() >= c->front()->get_steps_next();
+		}
+		buf.printf(",\"loading\":%s,\"schedule_editing\":%s", loading ? "true" : "false", editing ? "true" : "false");
 		// The ordered last/current halt -> next scheduled halt distinguishes
 		// two services of the same operation while their tolerance windows overlap.
-		const grund_t *last_stop = c->is_loading() ? g : welt->lookup(c->front()->last_stop_pos);
-		if(  last_stop && last_stop->get_halt().is_bound()  ) {
-			buf.append(",\"service_from\":"); append_json_string(buf, last_stop->get_halt()->get_name());
+		halthandle_t from = loading && g ? g->get_halt() : halthandle_t();
+		if(  !loading && schedule && schedule->get_count()  ) {
+			// last_stop_pos belongs to freight accounting: opening the editor
+			// overwrites it even between stations, and closing it does not restore it.
+			for(  uint32 offset = 1; offset < schedule->get_count(); offset++  ) {
+				const schedule_entry_t &entry = schedule->at((schedule->get_current_stop() + schedule->get_count() - offset) % schedule->get_count());
+				if(  entry.is_pass_stop()  ) continue;
+				from = haltestelle_t::get_stoppable_halt(entry.pos, c->get_owner(), track_wt);
+				if(  from.is_bound()  ) break;
+			}
 		}
-		if(  c->get_schedule() && c->get_schedule()->get_count()  ) {
-			const schedule_t *schedule = c->get_schedule();
-			const grund_t *to = welt->lookup(c->is_loading() ? schedule->get_next_entry().pos : schedule->get_current_entry().pos);
+		if(  from.is_bound()  ) {
+			buf.append(",\"service_from\":"); append_json_string(buf, from->get_name());
+		}
+		if(  schedule && schedule->get_count()  ) {
+			const grund_t *to = welt->lookup(loading ? schedule->get_next_entry().pos : schedule->get_current_entry().pos);
 			if(  to && to->get_halt().is_bound()  ) {
 				buf.append(",\"service_to\":"); append_json_string(buf, to->get_halt()->get_name());
 			}
 		}
-		if(  c->is_loading() && c->get_arrived_time() != 0  ) {
+		if(  loading && c->get_arrived_time() != 0  ) {
 			buf.printf(",\"arrival_elapsed\":%u", (uint32)((uint64)(welt->get_ticks() - c->get_arrived_time()) * 86400 / welt->ticks_per_world_month));
 		}
-		else if(  !c->is_loading() && c->get_schedule() && c->get_schedule()->get_count()  ) {
+		else if(  !loading && schedule && schedule->get_count()  ) {
 			const grund_t *target = welt->lookup(c->get_schedule()->get_current_entry().pos);
 			if(  target && target->get_halt().is_bound()  ) {
 				buf.append(",\"next_halt\":"); append_json_string(buf, target->get_halt()->get_name());
