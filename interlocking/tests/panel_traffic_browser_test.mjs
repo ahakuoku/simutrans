@@ -167,7 +167,14 @@ try {
 	await page.locator("#networkTrains").getByText("推定遅延 5分00秒（ゲーム終点 到着見込）", { exact: true }).waitFor();
 	await otherContext.close();
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /推定遅延 5分00秒/);
-	assert.equal(await page.locator("#networkMap .network-train-label.network-delay-late").count(), 1);
+	assert.equal(await page.locator("#networkMap .network-train-label tspan.network-delay-late").count(), 1);
+	for (const [delay, red] of [[59, false], [60, true], [0, false], [-60, false]]) {
+		api.network.convoys[0].eta_seconds = 900 + delay;
+		await page.waitForFunction(value => network?.convoys[0]?.eta_seconds === value, 900 + delay);
+		assert.equal(await page.locator("#networkTrains .network-delay-late").count(), red ? 1 : 0);
+		assert.equal(await page.locator("#networkMap .network-train-label tspan.network-delay-late").count(), red ? 1 : 0);
+		assert.equal(await page.locator("#networkMap .network-train-label tspan:nth-child(-n+2).network-delay-late").count(), 0, "train identity stays its normal color");
+	}
 	api.network.time = "10:21:00"; api.network.seconds = 37260;
 	api.network.convoys[0].loading = true; api.network.convoys[0].halt = "ゲーム終点"; api.network.convoys[0].arrival_elapsed = 0;
 	await page.locator("#networkTrains").getByText("遅延 1分00秒（ゲーム終点 到着基準）", { exact: true }).waitFor();

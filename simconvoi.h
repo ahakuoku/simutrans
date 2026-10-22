@@ -1213,6 +1213,8 @@ public:
 	 *   loading time among the convoy's vehicles, or a default when unknown.
 	 */
 	static uint32 calc_ticks_until_arrival( convoihandle_t cnv, const vector_tpl<koord3d> *route_tiles = NULL, bool add_stop_time = false );
+	// Read-only physical-distance forecast for the external network panel.
+	bool calc_panel_ticks_until_arrival(uint32 &ticks) const;
 
 	// Overtaking for convois
 	virtual bool can_overtake(overtaker_t *other_overtaker, sint32 other_speed, sint16 steps_other) OVERRIDE;

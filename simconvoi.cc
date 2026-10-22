@@ -8,6 +8,7 @@
 
 #include "simdebug.h"
 #include "simunits.h"
+#include "interlocking/il_eta.h"
 #include "simworld.h"
 #include "simware.h"
 #include "player/finance.h" // convert_money
@@ -5301,6 +5302,64 @@ static void accumulate_leg_ticks( uint32 &delta_t, sint32 tiles, uint32 kmh_aver
 	if(  tiles > 0  ) {
 		delta_t += (uint32)( ( (sint64)tiles << (8+12) ) / kmh_to_speed( max( kmh_average, 1u ) ) );
 	}
+}
+
+
+bool convoi_t::calc_panel_ticks_until_arrival(uint32 &ticks) const
+{
+	ticks = 0;
+	const uint32 count = route.get_count();
+	if(  !anz_vehikel || !count || min_top_speed <= 0  ) return false;
+	const uint32 index = front()->get_route_index();
+	if(  !index || index > count || route.at(index - 1) != front()->get_pos()  ) return false;
+
+	sint32 train_limit = min_top_speed;
+	sint64 power = 0;
+	convoihandle_t c = self;
+	while(  c.is_bound()  ) {
+		power += c->get_sum_gear_and_power();
+		if(  c->get_schedule() && c->get_schedule()->get_max_speed()  ) train_limit = min(train_limit, kmh_to_speed(c->get_schedule()->get_max_speed()));
+		if(  c->get_max_speed_kmh_of_convoi()  ) train_limit = min(train_limit, kmh_to_speed(c->get_max_speed_kmh_of_convoi()));
+		c = c->get_coupling_convoi();
+	}
+	if(  max_balance_speed_convoi  ) train_limit = min(train_limit, kmh_to_speed(max_balance_speed_convoi));
+	if(  sum_gesamtweight && power > 0  ) train_limit = min(train_limit, calc_max_speed(power, sum_gesamtweight, train_limit));
+
+	il_eta_t eta;
+	for(  uint32 i = index - 1; i < count; i++  ) {
+		const grund_t *gr = welt->lookup(route.at(i));
+		const weg_t *way = gr ? gr->get_weg(front()->get_waytype(), route.get_corner_set(i)) : NULL;
+		if(  !way  ) return false;
+		sint32 limit = min(train_limit, kmh_to_speed(way->get_max_speed()));
+		if(  use_electric  ) limit = min(limit, kmh_to_speed(way->get_max_wayobj_speed()));
+		if(  in_delay_recovery  ) limit += kmh_to_speed(5);
+		// The same final-tile countdown as calc_acceleration(), without a
+		// route-length margin or speed average from already travelled track.
+		const uint32 left = count - 1 - i;
+		static const uint32 braking_kmh[] = {25, 50, 100, 200};
+		if(  left < 4  ) limit = min(limit, kmh_to_speed(braking_kmh[left]));
+		if(  limit <= 0  ) return false;
+
+		uint32 steps;
+		if(  i == index - 1  ) {
+			steps = (uint32)front()->get_steps_next() + (i + 1 < count ? 1 : 0);
+			steps -= min(steps, (uint32)front()->get_steps());
+		}
+		else {
+			steps = ribi_t::is_bend(route.get_corner_set(i)) ? vehicle_base_t::get_diagonal_vehicle_steps_per_tile() : VEHICLE_STEPS_PER_TILE;
+			if(  i + 1 == count  ) {
+				// Station arrival stops part way through the final tile (hop()).
+				const ribi_t::ribi dir = ribi_type(route.at(i - 1), route.at(i));
+				steps--;
+				if(  dir == ribi_t::north || dir == ribi_t::west || dir == ribi_t::southeast  ) steps = steps / 2 + 1;
+				else if(  dir == ribi_t::northeast  ) steps = steps / 4 + 1;
+				else if(  dir == ribi_t::northwest || dir == ribi_t::southwest  ) steps = 1;
+			}
+		}
+		eta.add(steps, limit, speed_magnification);
+	}
+	ticks = eta.ticks();
+	return true;
 }
 
 

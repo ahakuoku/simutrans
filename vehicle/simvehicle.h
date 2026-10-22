@@ -140,6 +140,7 @@ public:
 
 	sint16 get_hoff(const sint16 raster_width=1) const;
 	uint8 get_steps() const {return steps;}
+	uint8 get_steps_next() const {return steps_next;}
 
 	uint8 get_disp_lane() const { return disp_lane; }
 

@@ -318,6 +318,8 @@ function trainDelay(convoy, seconds, entry) {
 	return unknown;
 }
 
+const isDelayLate = delay => delay.seconds >= 60;
+
 function networkTrainDisplay(c, data) {
 	const diagram = operationData?.diagrams[operationConfig.diagram];
 	const matches = matchOperation(c.name, data.seconds, diagram, operationConfig.early, operationConfig.late, c.halt, c);
@@ -384,7 +386,7 @@ function renderNetwork() {
 	summary.textContent = `接続線路 ${network.track_count} タイル・在線 ${network.convoys.length} 編成` + (diagram ? ` ／ ${diagram.name}` : operationData ? " ／ ダイヤ未選択（在線表示のみ）" : " ／ ダイヤ未読込（在線表示のみ）");
 	list.innerHTML = network.convoys.map(c => {
 		const display = networkTrainDisplay(c, network);
-		return `<div class="item"><b>${esc(display.text)}</b><div class="${display.delay.seconds > 0 ? "network-delay-late" : ""}">${esc(display.delay.text)}</div><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint" title="${esc(c.halt || "")}">${esc(displayStationName(c.halt) || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
+		return `<div class="item"><b>${esc(display.text)}</b><div class="${isDelayLate(display.delay) ? "network-delay-late" : ""}">${esc(display.delay.text)}</div><div>運用番号 ${esc(operationNumber(c.name))} <small>（編成 ${c.id}）</small></div><div class="hint" title="${esc(c.halt || "")}">${esc(displayStationName(c.halt) || "駅間")} (${esc(c.pos.join(", "))}) ／ 在線 ${c.occupied.length} タイル</div></div>`;
 	}).join("") || '<p class="hint">接続区間に列車はいません</p>';
 }
 
@@ -430,7 +432,7 @@ function renderNetworkMap(data) {
 		}
 		labelBoxes.push(box);
 		const x = box.x / scale, y = (box.y + 15) / scale;
-		labels.push(`<g><path class="network-label-leader" d="M${ax},${ay} L${x},${y}"/><text class="${stationLabel ? "network-station-label" : "network-train-label"}${late ? " network-delay-late" : ""}" x="${x}" y="${y}">${lines.map((line, i) => `<tspan x="${x}" dy="${i ? 18 / scale : 0}">${esc(line)}</tspan>`).join("")}</text></g>`);
+		labels.push(`<g><path class="network-label-leader" d="M${ax},${ay} L${x},${y}"/><text class="${stationLabel ? "network-station-label" : "network-train-label"}" x="${x}" y="${y}">${lines.map((line, i) => `<tspan${late && i === 2 ? ' class="network-delay-late"' : ""} x="${x}" dy="${i ? 18 / scale : 0}">${esc(line)}</tspan>`).join("")}</text></g>`);
 	}
 	for (const t of tiles) {
 		const [x, y] = xy(t.p), ends = DIRS.filter(d => t.r & d).map(d => [x + DXY[d][0] * unit / 2, y + DXY[d][1] * unit / 2]);
@@ -451,7 +453,7 @@ function renderNetworkMap(data) {
 	}
 	for (const c of data.convoys || []) {
 		const display = networkTrainDisplay(c, data);
-		addLabel(display.lines, c.pos, false, display.delay.seconds > 0);
+		addLabel(display.lines, c.pos, false, isDelayLate(display.delay));
 	}
 	svg.innerHTML = platforms.join("") + rails.join("") + signals.join("") + labels.join("");
 }

@@ -189,7 +189,10 @@ void il_query::get_network_json(cbuffer_t &buf, koord3d seed)
 			const grund_t *target = welt->lookup(c->get_schedule()->get_current_entry().pos);
 			if(  target && target->get_halt().is_bound()  ) {
 				buf.append(",\"next_halt\":"); append_json_string(buf, target->get_halt()->get_name());
-				buf.printf(",\"eta_seconds\":%u", (uint32)((uint64)convoi_t::calc_ticks_until_arrival(c) * 86400 / welt->ticks_per_world_month));
+				uint32 ticks;
+				if(  c->calc_panel_ticks_until_arrival(ticks)  ) {
+					buf.printf(",\"eta_seconds\":%u", (uint32)((uint64)ticks * 86400 / welt->ticks_per_world_month));
+				}
 			}
 		}
 		buf.append(",\"occupied\":[");

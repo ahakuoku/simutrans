@@ -104,6 +104,10 @@ assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},36000,del
 assert.equal(run('trainDelay({loading:false,next_halt:"C",eta_seconds:900},36600,delayEntry).text'), "推定遅延 5分00秒（C 到着見込）");
 assert.equal(run('trainDelay({loading:false,next_halt:"C",eta_seconds:300},36600,delayEntry).text'), "早着見込 5分00秒（C 到着見込）");
 assert.equal(run('trainDelay({loading:false,next_halt:"missing",eta_seconds:900},36600,delayEntry).seconds'), null);
+for (const seconds of [null, -60, 0, 1, 59, 60, 61]) {
+	context.delaySeconds = seconds;
+	assert.equal(run('isDelayLate({seconds:delaySeconds})'), seconds >= 60, `red threshold: ${seconds}`);
+}
 assert.equal(run('trainDelay({},36600,delayEntry).text'), "遅延不明");
 assert.equal(run('trainDelay({},36600,null).text'), "遅延不明");
 assert.equal(run('trainDelay({loading:true,halt:"A",arrival_elapsed:0},35900,{from:0,to:0,stops:[{name:"A",arrival:null,departure:36000}]}).text'), "定刻（A 発車待ち）");
