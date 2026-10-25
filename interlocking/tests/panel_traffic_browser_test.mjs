@@ -12,7 +12,7 @@ let offline = false;
 let networkRequests = 0, trackRequests = 0;
 const station = { id: 1, name: "始発", owner: 0, manual: false, signals: [], departures: [], view: [0, 0, 10, 10, 1] };
 const api = {
-	status: { stations: [station], routes: [], station_aliases: [] },
+	status: { stations: [station], routes: [], station_aliases: [], operations: { id: "-", file: "", bytes: 0, diagram: -1 } },
 	halts: { halts: [{ id: 1, name: "始発", owner: 0, tiles: [[1, 1, 0]] }] },
 	info: { map: [64, 64], player: 0, players: [{ nr: 0, name: "鉄道" }] },
 	events: { last: 0, events: [] },
@@ -22,19 +22,42 @@ const api = {
 		convoys: [{ id: 7, name: "(7) A01", pos: [250, 250, 0], halt: "", service_from: "始発", service_to: "終点", occupied: [[250, 250, 0]] }] },
 	panel: { parts: [] },
 };
+let operationBytes = Buffer.alloc(0), operationUpload = null, rejectNextOperationPart = false;
 const server = http.createServer((req, res) => {
 	const url = new URL(req.url, "http://localhost");
 	if (url.pathname.startsWith("/api/")) {
+		if (url.pathname === "/api/operations") {
+			const offset = Number(url.searchParams.get("offset") || 0);
+			res.setHeader("Content-Type", "application/json");
+			res.end(JSON.stringify({ ...api.status.operations, offset, data: operationBytes.subarray(offset, offset + 4096).toString("hex") })); return;
+		}
 		if (url.pathname === "/api/cmd") {
 			let body = "";
 			req.on("data", chunk => body += chunk);
 			req.on("end", () => {
 				const [cmd, key, value] = body.split(",");
+				let ok = true;
+				const fields = body.split(",");
+				if (cmd === "oud_begin") {
+					ok = value === api.status.operations.id;
+					if (ok) operationUpload = { id: key, base: value, bytes: Number(fields[3]), file: decodeURIComponent(fields[4]), data: Buffer.alloc(0) };
+				} else if (cmd === "oud_part") {
+					ok = !rejectNextOperationPart && operationUpload?.id === key && operationUpload.data.length === Number(value);
+					rejectNextOperationPart = false;
+					if (ok) operationUpload.data = Buffer.concat([operationUpload.data, Buffer.from(fields[3], "hex")]);
+				} else if (cmd === "oud_commit") {
+					ok = operationUpload?.id === key && operationUpload.base === api.status.operations.id && operationUpload.data.length === operationUpload.bytes;
+					if (ok) { operationBytes = operationUpload.data; api.status.operations = { id: key, file: operationUpload.file, bytes: operationBytes.length, diagram: -1 }; operationUpload = null; }
+				} else if (cmd === "oud_select" || cmd === "oud_clear") {
+					ok = key === api.status.operations.id;
+					if (ok && cmd === "oud_select") api.status.operations.diagram = Number(value);
+					if (ok && cmd === "oud_clear") { operationBytes = Buffer.alloc(0); api.status.operations = { id: "-", file: "", bytes: 0, diagram: -1 }; }
+				}
 				const pairs = new Map(api.status.station_aliases);
 				if (cmd === "alias_set") pairs.set(decodeURIComponent(key), decodeURIComponent(value));
 				if (cmd === "alias_del") pairs.delete(decodeURIComponent(key));
 				api.status.station_aliases = [...pairs];
-				api.events.events.push({ seq: ++api.events.last, type: "result", command: body, ok: true });
+				api.events.events.push({ seq: ++api.events.last, type: "result", command: body, ok, error: ok ? undefined : "diagram upload interrupted or changed" });
 				res.end("{}");
 			}); return;
 		}
@@ -119,6 +142,7 @@ try {
 	await page.locator("#operationFile").setInputFiles({ name: "test.oud2", mimeType: "text/plain", buffer: Buffer.from(overlappingSource) });
 	await page.locator("#operationFileStatus").getByText("test.oud2", { exact: false }).waitFor();
 	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
+	assert.equal(await page.evaluate(() => localStorage.getItem("tidil.operations")), null);
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkSummary").innerText(), /ダイヤ未選択/);
 	assert.match(await page.locator("#networkTrains").innerText(), /運用番号 A01/);
@@ -128,6 +152,7 @@ try {
 	await page.locator('[data-tab="setup"]').click();
 	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
 	await page.locator("#operationDiagram").selectOption("0");
+	await page.waitForFunction(() => operationConfig.diagram === 0 && !operationsBusy);
 	await page.locator("#operationEarly").fill("45"); await page.locator("#operationEarly").dispatchEvent("change");
 	await page.locator("#operationLate").fill("360"); await page.locator("#operationLate").dispatchEvent("change");
 	await page.locator('[data-tab="run"]').click();
@@ -153,6 +178,14 @@ try {
 	await other.goto(`http://127.0.0.1:${server.address().port}`);
 	await other.locator("#panelMode").selectOption("network");
 	await other.locator('[data-tab="setup"]').click();
+	await other.locator("#operationFileStatus").getByText("test.oud2", { exact: false }).waitFor();
+	assert.equal(await other.locator("#operationDiagram").inputValue(), "0", "selected diagram is shared with a fresh browser");
+	assert.equal(await other.evaluate(() => localStorage.getItem("tidil.operations")), null, "source is not saved to the browser");
+	await other.locator("#operationDiagram").selectOption("-1");
+	await page.locator("#networkTrains").getByText("運用照合なし", { exact: false }).waitFor();
+	await other.waitForFunction(() => !operationsBusy);
+	await other.locator("#operationDiagram").selectOption("0");
+	await page.locator("#networkTrains").getByText("101 急行 終点行", { exact: false }).waitFor();
 	await other.locator(".alias-game").waitFor();
 	assert.equal(await other.locator(".alias-game").inputValue(), "ゲーム終点");
 	assert.equal(await other.locator(".alias-oud").inputValue(), "終点");
@@ -202,6 +235,7 @@ try {
 	await page.locator("#operationFileStatus").getByText("test-legacy.oud2", { exact: false }).waitFor();
 	assert.equal(await page.locator("#operationDiagram").inputValue(), "-1");
 	await page.locator("#operationDiagram").selectOption("0");
+	await page.waitForFunction(() => operationConfig.diagram === 0 && !operationsBusy);
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /101 急行 終点行/);
 	await page.reload();
@@ -228,11 +262,33 @@ try {
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
 	await page.locator('[data-tab="setup"]').click();
 	await page.locator("#operationDiagram").selectOption("-1");
+	await page.waitForFunction(() => operationConfig.diagram === -1 && !operationsBusy);
 	await page.locator('[data-tab="run"]').click();
 	assert.match(await page.locator("#networkTrains").innerText(), /運用照合なし/);
 	assert.doesNotMatch(await page.locator("#networkTrains").innerText(), /101 急行/);
 	assert.doesNotMatch(await page.locator("#networkMap .network-train-label").textContent(), /101 急行/);
 	assert.match(await page.locator("#networkMap .network-train-label").textContent(), /遅延不明/);
+	// A different save with the same filename must replace cached data.
+	const freshContext = await browser.newContext();
+	const fresh = await freshContext.newPage();
+	await fresh.goto(`http://127.0.0.1:${server.address().port}`);
+	await fresh.locator("#panelMode").selectOption("network");
+	operationBytes = Buffer.from(overlappingSource.replace("Ressyabangou=101", "Ressyabangou=201"));
+	api.status.operations = { ...api.status.operations, id: "33333333333333333333333333333333", bytes: operationBytes.length, diagram: 0 };
+	await page.locator("#networkTrains").getByText("201 急行 終点行", { exact: false }).waitFor();
+	await fresh.locator("#networkTrains").getByText("201 急行 終点行", { exact: false }).waitFor();
+	rejectNextOperationPart = true;
+	await page.locator('[data-tab="setup"]').click();
+	await page.locator("#operationFile").setInputFiles({ name: "interrupted.oud2", mimeType: "text/plain", buffer: Buffer.from(overlappingSource) });
+	await page.waitForFunction(() => !operationsBusy);
+	assert.equal(api.status.operations.id, "33333333333333333333333333333333");
+	assert.equal(await fresh.locator("#networkTrains").getByText("201 急行 終点行", { exact: false }).count(), 1);
+	await fresh.locator('[data-tab="setup"]').click();
+	await fresh.locator("#operationClear").click();
+	await fresh.waitForFunction(() => !operationData && !operationsBusy);
+	await page.waitForFunction(() => !operationData);
+	assert.equal(operationBytes.length, 0);
+	await freshContext.close();
 	await page.locator('[data-tab="run"]').click();
 	offline = true;
 	await page.locator("#networkSummary").getByText("在線情報を取得できません", { exact: false }).waitFor();

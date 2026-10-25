@@ -67,6 +67,7 @@ const ERRORS = {
 	"unknown kind of magnet": "マグネットの種類が分かりません",
 	"upload of the panel was interrupted": "カスタム盤の送信が途中で途切れました。もう一度「適用」を押してください",
 	"bad panel part": "カスタム盤の部品が読めません",
+	"diagram upload interrupted or changed": "ダイヤの送信が中断されたか、ほかの盤で更新されました。もう一度操作してください",
 };
 const tr = (e) => {
 	if (e === "not owner") {
@@ -181,7 +182,7 @@ function handleEvent(ev) {
 		const label = pending.get(ev.command) || ev.command;
 		pending.delete(ev.command);
 		waiters = waiters.filter(w => { if (w.cmd === ev.command) { w.resolve(ev); return false; } return true; });
-		log((ev.ok ? "OK  " : "NG  ") + label + (ev.ok ? "" : " … " + tr(ev.error)), ev.ok ? "ok" : "err");
+		if (!ev.ok || !ev.command.startsWith("oud_part,")) log((ev.ok ? "OK  " : "NG  ") + (ev.command.startsWith("oud_") ? "ダイヤ共通設定" : label) + (ev.ok ? "" : " … " + tr(ev.error)), ev.ok ? "ok" : "err");
 		if (!ev.ok && !ev.command.startsWith("rt_def") && !ev.command.startsWith("rt_path")) toast(tr(ev.error));
 	}
 	else if (ev.type === "route") {
@@ -225,6 +226,7 @@ async function rotateAreas() {
 async function refreshStatus() {
 	status = await api("/api/status");
 	syncSharedStationAliases(status);
+	syncSharedOperations(status);
 	if (!station() && status.stations.length) {
 		stationId = status.stations[0].id;
 		localStore("station", stationId);

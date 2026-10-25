@@ -330,20 +330,68 @@ function networkTrainDisplay(c, data) {
 }
 
 let operationData = null;
-try {
-	const saved = JSON.parse(localStore("operations") || "null");
-	if (saved?.source) operationData = { file: saved.file, diagrams: parseOudOperations(saved.source) };
-} catch (e) {}
+let sharedOperations = null, operationsLoading = null, operationsBusy = false;
+const operationMaxBytes = 8 * 1024 * 1024;
 let network = null, networkSeed = "", networkError = "", networkDue = 0;
 let networkMapZoom = 1;
 let networkMapRendered = null;
 const operationConfig = { early: 120, late: 1800, diagram: -1, stationAliases: [] };
 try { Object.assign(operationConfig, JSON.parse(localStore("operationConfig") || "{}")); } catch (e) {}
 operationConfig.stationAliases = [];
+operationConfig.diagram = -1;
 let sharedAliasesReady = false, aliasDraftDirty = false, aliasSaving = false, aliasDraftBase = [];
 function saveOperationConfig() {
-	const { stationAliases, ...config } = operationConfig;
+	const { stationAliases, diagram, ...config } = operationConfig;
 	localStore("operationConfig", JSON.stringify(config));
+}
+
+function setOperationsBusy(busy, message = "") {
+	operationsBusy = busy;
+	for (const id of ["operationFile", "operationDiagram", "operationClear"]) document.getElementById(id).disabled = busy || !sharedOperations;
+	if (message) document.getElementById("operationFileStatus").textContent = message;
+}
+
+async function syncSharedOperations(state) {
+	const meta = state.operations;
+	if (!meta || typeof meta.id !== "string") { sharedOperations = null; setOperationsBusy(false); return; }
+	sharedOperations = meta;
+	const applySelection = () => {
+		const selected = operationData?.diagrams[sharedOperations.diagram] ? sharedOperations.diagram : -1;
+		if (operationConfig.diagram !== selected) {
+			operationConfig.diagram = selected;
+			document.getElementById("operationDiagram").value = selected;
+			renderNetwork();
+		}
+	};
+	if (!meta.bytes) {
+		operationsLoading = null;
+		if (operationData) { operationData = null; operationConfig.diagram = -1; renderOperationSettings(); renderNetwork(); }
+		setOperationsBusy(operationsBusy); return;
+	}
+	if (operationData?.id === meta.id) { applySelection(); setOperationsBusy(operationsBusy); return; }
+	if (operationsLoading === meta.id) return;
+	const key = meta.id; operationsLoading = key;
+	// Hide a different game's data while fetching its replacement.
+	operationData = null; operationConfig.diagram = -1;
+	renderOperationSettings(); renderNetwork();
+	try {
+		if (!Number.isInteger(meta.bytes) || meta.bytes <= 0 || meta.bytes > operationMaxBytes) throw new Error("ダイヤのサイズが不正です");
+		const bytes = new Uint8Array(meta.bytes);
+		for (let offset = 0; offset < bytes.length;) {
+			const part = await api(`/api/operations?offset=${offset}`);
+			if (sharedOperations?.id !== key) return;
+			if (part.id !== key || part.offset !== offset || part.bytes !== bytes.length || !/^(?:[0-9a-f]{2})+$/.test(part.data) || offset + part.data.length / 2 > bytes.length) throw new Error("ダイヤが更新されました。再取得します");
+			for (let i = 0; i < part.data.length; i += 2) bytes[offset++] = parseInt(part.data.slice(i, i + 2), 16);
+		}
+		const source = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+		operationData = { id: key, file: meta.file, diagrams: parseOudOperations(source) };
+		applySelection(); renderOperationSettings(); renderNetwork();
+	} catch (e) {
+		if (sharedOperations?.id === key) document.getElementById("operationFileStatus").textContent = `ゲームのダイヤを取得できません: ${e.message}`;
+	} finally {
+		if (operationsLoading === key) operationsLoading = null;
+		setOperationsBusy(operationsBusy);
+	}
 }
 function syncSharedStationAliases(state) {
 	const wasReady = sharedAliasesReady;
@@ -482,10 +530,11 @@ function renderOperationSettings() {
 	const sel = document.getElementById("operationDiagram");
 	sel.innerHTML = '<option value="-1">選択しない（在線表示のみ）</option>' + (operationData?.diagrams || []).map((d, i) => `<option value="${i}">${esc(d.name)}（${d.entries.length}件）</option>`).join("");
 	sel.value = operationData?.diagrams[operationConfig.diagram] ? operationConfig.diagram : -1;
-	document.getElementById("operationFileStatus").textContent = operationData ? `${operationData.file}：運用情報を読込済み` : "運用情報を保存した .oud2 ファイルを選択してください。";
+	if (!operationsBusy) document.getElementById("operationFileStatus").textContent = operationData ? `${operationData.file}：ゲーム共通の運用情報を読込済み` : operationsLoading ? "ゲームのダイヤを受信中…" : "ゲーム共通に保存する .oud2 ファイルを選択してください。";
 	for (const [field, id] of [["early", "operationEarly"], ["late", "operationLate"]]) document.getElementById(id).value = operationConfig[field];
-	renderStationAliasSettings();
+	if (!aliasDraftDirty && !aliasSaving) renderStationAliasSettings();
 	renderStationAliasSuggestions();
+	setOperationsBusy(operationsBusy);
 }
 
 function renderStationAliasSettings() {
@@ -551,26 +600,46 @@ document.getElementById("stationAliasSave").addEventListener("click", async () =
 
 document.getElementById("operationFile").addEventListener("change", async e => {
 	const file = e.target.files[0]; if (!file) return;
+	if (!sharedOperations || operationsBusy) { e.target.value = ""; return; }
+	const previous = sharedOperations.id;
+	setOperationsBusy(true, "ダイヤを読み込んでいます…");
 	try {
+		if (file.size > operationMaxBytes || new TextEncoder().encode(file.name).length > 512) throw new Error("ファイルは8MiB以下、ファイル名はUTF-8で512バイト以下にしてください");
 		const bytes = await file.arrayBuffer();
 		let text;
 		try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
 		catch (e) { text = new TextDecoder("shift-jis").decode(bytes); }
 		const diagrams = parseOudOperations(text);
 		if (!diagrams.some(d => d.entries.length)) throw new Error("運用番号を読み取れません。OuDiaSecondの出区・路線外始発・運用番号変更の作業設定、または保存された運用情報を確認してください");
-		const data = { file: file.name, diagrams };
-		// Store before replacing the current selection: a quota failure preserves it.
-		try { localStorage.setItem("tidil.operations", JSON.stringify({ file: file.name, source: text })); }
-		catch (e) { throw new Error("読込データをブラウザに保存できません（保存容量を確認してください）"); }
-		operationData = data; operationConfig.diagram = -1; saveOperationConfig();
-		renderOperationSettings(); renderNetwork();
+		const source = new TextEncoder().encode(text);
+		if (source.length > operationMaxBytes) throw new Error("UTF-8に変換したファイルが8MiBを超えています");
+		const token = [...crypto.getRandomValues(new Uint8Array(16))].map(n => n.toString(16).padStart(2, "0")).join("");
+		const begin = await commandResult(`oud_begin,${token},${previous},${source.length},${encodeURIComponent(file.name)}`);
+		if (!begin.ok) throw new Error(tr(begin.error));
+		for (let offset = 0; offset < source.length; offset += 1600) {
+			const hex = [...source.subarray(offset, offset + 1600)].map(n => n.toString(16).padStart(2, "0")).join("");
+			const response = await fetch("/api/cmd", { method: "POST", headers: { "X-IL-Panel": "1", "Content-Type": "text/plain; charset=utf-8" }, body: `oud_part,${token},${offset},${hex}` });
+			if (!response.ok) throw new Error("送信に失敗しました");
+			setOperationsBusy(true, `ダイヤをゲームへ送信中… ${Math.min(offset + 1600, source.length)} / ${source.length} バイト`);
+		}
+		const result = await commandResult(`oud_commit,${token}`);
+		if (!result.ok) throw new Error(tr(result.error));
+		await refreshStatus();
 	} catch (err) { toast("運用情報を読み込めません: " + err.message); }
-	e.target.value = "";
+	finally { e.target.value = ""; setOperationsBusy(false); renderOperationSettings(); }
 });
-document.getElementById("operationDiagram").addEventListener("change", e => { operationConfig.diagram = Number(e.target.value); saveOperationConfig(); renderNetwork(); });
-document.getElementById("operationClear").addEventListener("click", () => {
-	operationData = null; operationConfig.diagram = -1; saveOperationConfig(); localStore("operations", "null"); renderOperationSettings(); renderNetwork();
-});
+async function changeSharedOperation(command) {
+	if (!sharedOperations || operationsBusy) return;
+	setOperationsBusy(true);
+	try {
+		const result = await commandResult(command);
+		if (!result.ok) throw new Error(tr(result.error));
+		await refreshStatus();
+	} catch (e) { toast(e.message); }
+	finally { setOperationsBusy(false); renderOperationSettings(); renderNetwork(); }
+}
+document.getElementById("operationDiagram").addEventListener("change", e => changeSharedOperation(`oud_select,${sharedOperations?.id},${Number(e.target.value)}`));
+document.getElementById("operationClear").addEventListener("click", () => changeSharedOperation(`oud_clear,${sharedOperations?.id}`));
 for (const [field, id] of [["early", "operationEarly"], ["late", "operationLate"]]) document.getElementById(id).addEventListener("change", e => {
 	const n = Number(e.target.value);
 	if (!e.target.value || !Number.isInteger(n) || n < 0 || n > 86399) { toast("許容時間は0〜86399秒で指定してください"); e.target.value = operationConfig[field]; return; }

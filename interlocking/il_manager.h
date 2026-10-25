@@ -11,6 +11,7 @@
 #include "../dataobj/koord3d.h"
 #include "../tpl/vector_tpl.h"
 #include "../utils/plainstring.h"
+#include "il_operations.h"
 
 class cbuffer_t;
 class loadsave_t;
@@ -236,6 +237,7 @@ public:
 
 	/// number of stations (for tests)
 	uint32 get_station_count() const { return stations.get_count(); }
+	void get_operations_json(cbuffer_t &buf, bool include_source = true, uint32 offset = 0) const;
 	const il_route_t *get_route(uint16 id) const;
 
 private:
@@ -246,6 +248,7 @@ private:
 	// One dictionary for the whole game, independent of stations and players.
 	vector_tpl<plainstring> alias_game_names;
 	vector_tpl<plainstring> alias_dia_names;
+	il_operations_t operations;
 	vector_tpl<il_route_t *> routes;
 
 	void rdwr_blob(il_blob_t &b);

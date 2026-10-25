@@ -71,9 +71,10 @@
 			<h2>OuDiaSecondV2 運用情報</h2>
 			<p class="hint">ダイヤ未読込・未選択でも全接続区間の在線を表示できます。列車番号・種別・行先を照合する場合にダイヤを選択してください。</p>
 			<p class="hint">旧版で保存されたファイルは、出区・折り返し・増解結などの駅作業から運用を復元します。</p>
+			<p class="hint">ファイルと選択中のダイヤはゲーム共通です。ゲームをセーブするとデータ内に保存され、別PCでも共有されます（UTF-8換算8MiBまで）。</p>
 			<input type="file" id="operationFile" accept=".oud2">
 			<p class="hint" id="operationFileStatus">運用情報を保存した .oud2 ファイルを選択してください。</p>
-			<div class="row"><label>ダイヤ <select id="operationDiagram"></select></label><button id="operationClear">読込解除</button></div>
+			<div class="row"><label>ダイヤ <select id="operationDiagram"></select></label><button id="operationClear">共有ダイヤを解除</button></div>
 			<div class="row"><label>早発の許容時間（秒）<input id="operationEarly" type="number" min="0" max="86399" step="1"></label></div>
 			<div class="row"><label>遅延の許容時間（秒）<input id="operationLate" type="number" min="0" max="86399" step="1"></label></div>
 			<h2>駅名エイリアス</h2>

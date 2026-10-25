@@ -609,6 +609,9 @@ static void handle_http(client_t &c, char *head, const char *body)
 	if(  strcmp(target, "/api/status") == 0  ) {
 		il->get_status_json(json);
 	}
+	else if(  strcmp(target, "/api/operations") == 0  ) {
+		il->get_operations_json(json, true, (uint32)max(0, get_query_int(query, "offset", 0)));
+	}
 	else if(  strcmp(target, "/api/events") == 0  ) {
 		get_events_json(json, (uint32)get_query_int(query, "since", 0));
 	}
