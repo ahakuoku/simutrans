@@ -58,6 +58,12 @@ main { flex: 1; display: flex; min-height: 0; }
 }
 #viewbar button { font-size: 12px; padding: 3px 10px; border-radius: 12px; }
 #viewbar button.on { background: #1f4f86; border-color: #2c6cb5; color: var(--text); }
+#routeViaBar { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel2); }
+#routeViaBar button { margin-right: 6px; }
+#routeViaBar button.on { background: #1f4f86; }
+#manualRouteViaControls #routeViaBar { border: 1px solid var(--accent); border-radius: 6px; margin: 8px 0; }
+#manualRouteViaControls #routeViaBar .hint { display: block; margin-top: 8px; }
+#map .route-waypoint { pointer-events: none; }
 #viewbar .compass { margin-left: auto; display: flex; align-items: center; gap: 4px; color: var(--text); }
 #viewbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
 aside {

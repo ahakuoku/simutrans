@@ -31,7 +31,7 @@
 	</nav>
 </header>
 <main>
-	<div id="mapwrap"><div id="viewbar"></div><svg id="map"></svg><div class="empty" id="mapEmpty">連動駅がありません。「設定」タブで駅を作成してください。</div></div>
+	<div id="mapwrap"><div id="viewbar"></div><div id="routeViaHost"><div id="routeViaBar" hidden></div></div><svg id="map"></svg><div class="empty" id="mapEmpty">連動駅がありません。「設定」タブで駅を作成してください。</div></div>
 	<aside>
 		<section id="tab-run">
 			<div id="networkRun" hidden>
@@ -161,7 +161,8 @@
 				<button class="primary elec-only" id="btnAutoRoutes">進路を自動作成</button>
 				<button id="btnManualRoute" class="elec-only">手で作る</button>
 			</div>
-			<p class="hint elec-only" id="routeHint">自動作成: 各てこ扱い信号から各番線・留置線へ、各番線の出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。</p>
+			<p class="hint elec-only" id="routeHint">手で作る: 始点を選択 →「中継点を指定」→ 経由する線路を順にクリック →「中継点の指定を終了」→ 着点を選択 → 名前を入力して登録。中継点は省略できます。</p>
+			<div id="manualRouteViaControls" class="elec-only"></div>
 			<div class="list" id="routeList"></div>
 
 			<h2>駅の削除</h2>

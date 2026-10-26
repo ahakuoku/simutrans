@@ -191,6 +191,8 @@ function gridOfTile(parts, k) {
 		const f = p.b.length > 1 ? i / (p.b.length - 1) : .5;
 		return [p.x1 + (p.x2 - p.x1) * f, p.y1 + (p.y2 - p.y1) * f];
 	}
+	const symbol = parts.find(p => ["P", "S", "D"].includes(p.t) && (p.b || []).some(t => key(t) === k));
+	if (symbol) return [symbol.x1, symbol.y1];
 	return null;
 }
 
@@ -244,6 +246,17 @@ function renderCustom() {
 			if ((p.b || []).some(t => { const tt = tileIndex.get(key(t)); return tt && tt.c; })) color = "var(--occupied)";
 			el("line", { x1: X(p.x1), y1: Y(p.y1), x2: X(p.x2), y2: Y(p.y2), stroke: bad ? "#5a6475" : color, "stroke-width": 6 * sc, "stroke-linecap": "round", "stroke-dasharray": bad ? "6 5" : "" }, grp);
 			if (cpEdit) el("line", { x1: X(p.x1), y1: Y(p.y1), x2: X(p.x2), y2: Y(p.y2), stroke: "transparent", "stroke-width": 14 }, grp);
+			else if ((routeViaPicking || manualRoute?.start) && p.b?.length) {
+				const hit = el("line", { x1: X(p.x1), y1: Y(p.y1), x2: X(p.x2), y2: Y(p.y2), stroke: "transparent", "stroke-width": Math.max(14, 14 * sc), class: "clickable", "data-route-part": i }, grp);
+				hit.addEventListener("click", e => {
+					e.stopPropagation();
+					const point = svg.createSVGPoint(); point.x = e.clientX; point.y = e.clientY;
+					const at = point.matrixTransform(grp.getScreenCTM().inverse()), dx = X(p.x2 - p.x1), dy = Y(p.y2 - p.y1);
+					const f = dx || dy ? ((at.x - X(p.x1)) * dx + (at.y - Y(p.y1)) * dy) / (dx * dx + dy * dy) : 0;
+					const pos = p.b[Math.max(0, Math.min(p.b.length - 1, Math.round(f * (p.b.length - 1))))];
+					const t = tileIndex.get(key(pos)); if (t) tileClicked(t);
+				});
+			}
 		}
 		else if (p.t === "P") {
 			const pi = layout.points.findIndex(pt => p.b[0] && key(pt.t.p) === key(p.b[0]));
@@ -253,19 +266,23 @@ function renderCustom() {
 			if (pi >= 0) {
 				el("text", { x: X(p.x1), y: Y(p.y1) - 9 * sc, "font-size": Math.max(9, 9 * sc), fill: "#9fb3cf", "text-anchor": "middle" }, grp).textContent = pointName(st, pi);
 				if (!cpEdit && tab === "run") { grp.classList.add("clickable"); grp.addEventListener("click", (e) => { e.stopPropagation(); pointClicked(pi); }); }
+				else if (!cpEdit && tab === "setup" && manualRoute?.start) { grp.classList.add("clickable"); grp.addEventListener("click", e => { e.stopPropagation(); tileClicked(layout.points[pi].t); }); }
 			}
 		}
 		else if (p.t === "D") {
 			const id = destIdOf(p);
 			const d = dests.get(id);
 			const lit = d && d.free, dim = d && !d.free;
+			if (d?.registeredName) el("title", {}, grp).textContent = `登録進路：${d.registeredName}`;
 			const br = 7 * Math.max(.8, sc * .9);
 			const x = X(p.x1), y = Y(p.y1);
 			if (lit) grp.classList.add("blink");
 			el("circle", { cx: x, cy: y, r: br + 1.6, fill: "#3b4250", stroke: lit || dim ? "var(--yellow)" : "#11151b", "stroke-width": lit || dim ? 2 : 1, "stroke-dasharray": dim || bad ? "3 2" : "" }, grp);
 			el("circle", { cx: x, cy: y, r: br, fill: bad ? "#5a6475" : lit ? "var(--yellow)" : "#e6e3d8" }, grp);
 			el("text", { x, y: y + br + 12, "font-size": 11, "font-weight": 600, fill: lit ? "var(--yellow)" : "#dfe6f0", "text-anchor": "middle" }, grp).textContent = p.s ? partText(p) : destName(st, id);
-			if (!cpEdit && tab === "run" && id) { grp.classList.add("clickable"); grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); }); }
+			if (!cpEdit && p.b?.length && (routeViaPicking || (tab === "setup" && manualRoute?.start))) {
+				grp.classList.add("clickable"); grp.addEventListener("click", e => { e.stopPropagation(); const t = tileIndex.get(key(p.b[0])); if (t) tileClicked(t); });
+			} else if (!cpEdit && tab === "run" && id) { grp.classList.add("clickable"); grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); }); }
 		}
 		else if (p.t === "S") drawStart(grp, st, p, X(p.x1), Y(p.y1), sc, bad);
 		else if (p.t === "L") {
@@ -304,6 +321,10 @@ function renderCustom() {
 			el("polygon", { points: `${x},${y + r - 3} ${x + 4},${y} ${x - 4},${y}`, fill: "#8a94a3" }, k);
 			el("text", { x, y: y - r - 3, "font-size": 10, fill: "#cfd6e0", "text-anchor": "middle" }, grp).textContent = "北";
 		}
+	}
+	for (let i = 0; i < routeVia.length; i++) {
+		const at = gridOfTile(parts, key(routeVia[i]));
+		if (at) drawRouteViaMarker(g, X(at[0]), Y(at[1]), i, sc);
 	}
 	// a line being drawn with ＋線路
 	if (cpEdit && cpEdit.drawing) {
@@ -352,6 +373,14 @@ function drawStart(grp, st, p, x, y, sc, bad) {
 	}
 	const other = !mayHandle(st, pos);
 	if (other) grp.classList.add("other");
+	if (!cpEdit && tab === "setup" && manualRoute) {
+		grp.classList.add("clickable");
+		grp.addEventListener("click", e => {
+			e.stopPropagation();
+			if (!manualRoute.start) { manualRoute.start = pos; render(); }
+			else { const t = tileIndex.get(key(pos)); if (t) tileClicked(t); }
+		});
+	}
 	if (isRelay()) {
 		const v = leverView(st, pos, sh);
 		const k = .42 * sc, r = 22 * k;
@@ -361,7 +390,7 @@ function drawStart(grp, st, p, x, y, sc, bad) {
 		el("text", { x, y: y + r + 11, "font-size": Math.max(9, 10 * sc), fill: "#e8e4d4", "text-anchor": "middle" }, grp).textContent = signalLabel(st, pos) + (sh ? " 入換" : "");
 		if (!cpEdit && tab === "run") {
 			grp.classList.add("clickable");
-			grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null, sh); });
+			grp.addEventListener("click", (e) => { e.stopPropagation(); if (!addRouteVia(pos)) turnSignalLever(pos, v.sl ? "N" : null, sh); });
 		}
 		return;
 	}

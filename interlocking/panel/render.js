@@ -41,6 +41,7 @@ function render() {
 	// the approach buzzer listens on every tab (not only while the relay board is shown)
 	if (station() && isRelay()) checkApproach(station());
 	renderHeader();
+	renderRouteVia();
 	if (isNetworkMode()) {
 		if (tab === "run") renderNetwork();
 	} else {
@@ -183,7 +184,7 @@ function renderMap() {
 			el("text", { x: cx(t.p), y: cy(t.p) + 4, "font-size": 11 * sc, "text-anchor": "middle", fill: "#e6e9ee" }, g).textContent = "車";
 		}
 		// a click target for creating routes by hand
-		const hit = el("rect", { x: cx(t.p) - CELL / 2, y: cy(t.p) - CELL / 2, width: CELL, height: CELL, fill: "transparent", class: manualRoute ? "clickable" : "" }, g);
+		const hit = el("rect", { x: cx(t.p) - CELL / 2, y: cy(t.p) - CELL / 2, width: CELL, height: CELL, fill: "transparent", class: manualRoute || routeViaPicking ? "clickable" : "", "data-route-tile": k }, g);
 		hit.addEventListener("click", () => tileClicked(t));
 		hit.appendChild(el("title", {})).textContent = `(${t.p.join(", ")}) ${layerName(t.p[2])}` + (t.c ? " " + (tracks.convoys[t.c] || "") : "");
 	}
@@ -228,7 +229,7 @@ function renderMap() {
 		const ps = pointState(pt);
 		const color = ps.locked && ps.by ? "var(--locked)" : ps.manual ? "var(--accent)" : "#6b7687";
 		const x = cx(t.p), y = cy(t.p);
-		const grp = el("g", { class: tab === "run" ? "clickable" : "" }, g);
+		const grp = el("g", { class: tab === "run" || manualRoute?.start ? "clickable" : "", "data-route-point": key(t.p) }, g);
 		el("circle", { cx: x, cy: y, r: 9 * sc, fill: "#141a24", stroke: color, "stroke-width": 2 }, grp);
 		const legs = new Set();
 		for (const pr of ps.pairs || []) for (const leg of pr) legs.add(leg);
@@ -239,7 +240,10 @@ function renderMap() {
 		block(x - 9 * sc, y - 9 * sc, x + 9 * sc, y + 9 * sc, 3);
 		label(grp, x, y, 9 * sc, pointName(st, i), { "font-size": Math.max(10, 10 * sc), fill: "#9fb3cf" });
 		grp.appendChild(el("title", {})).textContent = `${pointName(st, i)} ` + (ps.by ? `鎖錠中（${ps.by}）` : posName(ps.manual) + (ps.pairs ? `（${pairsText(ps.pairs)}）` : "")) + "（クリックで 自動→定位→反位 と切り替え）";
-		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); pointClicked(i); });
+		if (tab === "run" || manualRoute?.start) grp.addEventListener("click", (e) => {
+			e.stopPropagation();
+			if (tab === "setup") tileClicked(t); else pointClicked(i);
+		});
 	});
 	// destination buttons (着点): lit when reachable from the selected start lever
 	if (st && tab === "run") {
@@ -260,8 +264,8 @@ function renderMap() {
 			block(x - br - 2, y - br - 2, x + br + 2, y + br + 2, 3);
 			label(grp, x, y, br + 2, name, { "font-size": 11, "font-weight": 600, fill: lit ? "#1a1a1a" : "#dfe6f0" },
 				{ fill: lit ? "var(--yellow)" : "#20283a", stroke: lit || dim ? "var(--yellow)" : "#3a4558" });
-			grp.appendChild(el("title", {})).textContent = `着点ボタン：${name}` + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
-			grp.addEventListener("click", (e) => { e.stopPropagation(); destinationClicked(id); });
+			grp.appendChild(el("title", {})).textContent = `着点ボタン：${name}` + (d?.registeredName ? `　登録進路：${d.registeredName}` : "") + (lit ? "（押すと進路を引きます）" : dim ? "（在線・他の進路と重なるため今は引けません）" : "");
+			grp.addEventListener("click", (e) => { e.stopPropagation(); if (!addRouteVia(t.p)) destinationClicked(id); });
 		};
 		layout.groups.forEach((gr, i) => {
 			const mid = gr.slice().sort((a, b) => a.p[0] - b.p[0] || a.p[1] - b.p[1])[Math.floor(gr.length / 2)];
@@ -297,6 +301,10 @@ function renderMap() {
 		block(x - r, y - r, x + r, y + r, 3);
 		const grp = el("g", { class: (tab === "run" ? "clickable" : "") + (mayHandle(st, d.pos) ? "" : " other") }, g);
 		if (tab === "run") grp.addEventListener("click", (e) => { e.stopPropagation(); startClicked(d.pos, true); });
+		else if (tab === "setup" && manualRoute) grp.addEventListener("click", (e) => {
+			e.stopPropagation();
+			if (!manualRoute.start) { manualRoute.start = d.pos; render(); } else tileClicked(t);
+		});
 		if (d.shunt) {
 			// virtual shunting signal: a diamond (lit white when a route is set)
 			el("path", { d: `M${x} ${y - r * 1.25} L${x + r * 1.25} ${y} L${x} ${y + r * 1.25} L${x - r * 1.25} ${y} Z`, fill: clear ? "#f4f4f4" : "var(--red)", stroke: "#fff", "stroke-width": 2 }, grp);
@@ -349,6 +357,8 @@ function renderMap() {
 		}
 	}
 
+	for (let i = 0; i < routeVia.length; i++) drawRouteViaMarker(g, cx(routeVia[i]), cy(routeVia[i]), i, sc);
+
 	// a signal lever drawn on the map (relay panel): knob, aspect lamp ahead, number
 	function mapKnob(pos, x, y, dx, dy, sh = false) {
 		const v = leverView(st, pos, sh);
@@ -367,7 +377,7 @@ function renderMap() {
 		if (sc < 1.6) label(grp, x, y, r + 1, String(v.no), { "font-size": Math.max(10, 10 * sc), "font-weight": 700, fill: "#e8e4d4" });
 
 		grp.appendChild(el("title", {})).textContent = `${v.no} ${signalLabel(st, pos)}${sh ? " 入換てこ" : ""}：${v.sl ? "反位（もう一度押すと定位）" : "押すと開通方向にひねる"}${v.state ? "　" + v.state : ""}`;
-		grp.addEventListener("click", (e) => { e.stopPropagation(); turnSignalLever(pos, v.sl ? "N" : null, sh); });
+		grp.addEventListener("click", (e) => { e.stopPropagation(); if (!addRouteVia(pos)) turnSignalLever(pos, v.sl ? "N" : null, sh); });
 		grp.addEventListener("mouseenter", () => setHoverLever(mk));
 		grp.addEventListener("mouseleave", () => setHoverLever(null));
 	}
@@ -731,7 +741,9 @@ function renderSetup() {
 		if (confirm(`進路「${r.name}」を削除しますか？`)) command("rt_del," + r.id, "進路の削除 " + r.name);
 	});
 	document.getElementById("routeHint").textContent = manualRoute ?
-		(manualRoute.start ? "着点の線路（番線の端など）をクリックしてください。（Esc で中止）" : "始点のてこ扱い信号をクリックしてください。（Esc で中止）") :
-		"自動作成: 各てこ扱い信号から各番線・留置線へ、出発信号から区域の出口への進路を作ります。手で作る: 始点の信号 → 着点の線路の順にクリックします。";
+		(!manualRoute.start ? "手順1: 地図上の始点のてこ扱い信号または仮想出発信号をクリックしてください。（Esc で中止）" : routeViaPicking ?
+			"手順2: 中継点を通過順にクリックしてください。終わったら下の「中継点の指定を終了」を押してください。（最大16か所）" :
+			`${routeVia.length ? "手順3" : "手順2"}: 中継点を指定する場合は下の「中継点を指定」を押してください。指定済み、または不要なら地図上の着点の線路をクリックし、進路名を入力して登録してください。（Esc で中止）`) :
+		"手で作る: 始点を選択 →「中継点を指定」→ 経由する線路を順にクリック →「中継点の指定を終了」→ 着点を選択 → 名前を入力して登録。中継点は省略できます。自動作成では各信号・出発点から到達できる進路をまとめて登録します。";
 	document.getElementById("btnManualRoute").textContent = manualRoute ? "中止" : "手で作る";
 }
