@@ -2,6 +2,7 @@
 
 外部の盤（Web 盤・物理盤など）から、駅の信号と進路（番線の選択）を扱うための機能。
 設計は `documentation/interlocking_panel_design_ja.md` を参照。
+全区間在線・OuDiaSecond連携・遅延推定・共有設定・中継点付き進路の実装設計は[Web連動盤拡張設計書](../documentation/interlocking_panel_extensions_design_ja.md)を参照。
 
 | ファイル | 内容 |
 |---|---|

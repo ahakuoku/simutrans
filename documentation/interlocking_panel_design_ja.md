@@ -1,5 +1,7 @@
 # 信号連動盤（外部制御盤）設計書 — 駅扱い再現機能
 
+全区間在線・OuDiaSecond連携・遅延推定・共有設定・中継点付き進路の現在の実装は、[Web連動盤拡張設計書](interlocking_panel_extensions_design_ja.md)を参照。
+
 状態: 実装済み（OTRP v62.0.3）。1〜13 章は設計時の記録、**14 章が現在の機能の一覧**。
 対象: TID_simutrans（当初 OTRP v50 系で設計、v62.0.3 に移植）
 
